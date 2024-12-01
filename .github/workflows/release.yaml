@@ -1,0 +1,40 @@
+on:
+  release:
+    types: [created]
+
+env:
+  CMD_PATH: ./cmd/headscale-pf
+  CGO_ENABLED: 0
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  releases-matrix:
+    name: Release headscale-pf
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, darwin]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set VERSION env
+        run: echo VERSION=$(echo ${GITHUB_REF} | rev | cut -d'/' -f 1 | rev ) >> ${GITHUB_ENV}
+
+      - uses: wangyoucao577/go-release-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          goos: ${{ matrix.goos }}
+          goarch: ${{ matrix.goarch }}
+          project_path: "${{ env.CMD_PATH }}"
+          goversion: "1.23.3"
+          binary_name: "headscale-pf"
+          overwrite: true
+          md5sum: false
+          sha256sum: true
+          build_flags: -v
+          ldflags: -s -w -extldflags -static -X "github.com/yousysadmin/headscale-pf/pkg.Version=${{ env.VERSION }}"
+          asset_name: "headscale-pf-${{env.VERSION}}-${{ matrix.goos }}-${{ matrix.goarch }}"
