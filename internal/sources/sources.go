@@ -26,7 +26,9 @@ func NewSource(config SourceConfig) (Source, error) {
 	switch config.Name {
 	case "jc":
 		return NewJCClient(config)
+	case "ak":
+		return NewAuthentikClient(config)
 	default:
-		return nil, fmt.Errorf("unknown source name: %s", config.Name)
+		return nil, fmt.Errorf("unknown source name")
 	}
 }

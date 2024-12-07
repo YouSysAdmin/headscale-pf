@@ -38,6 +38,7 @@ func NewJCClient(config SourceConfig) (Jumpcloud, error) {
 	})
 
 	c.ContentType = "application/json"
+
 	return c, nil
 }
 
