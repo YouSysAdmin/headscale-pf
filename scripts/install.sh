@@ -92,9 +92,8 @@ adjust_arch() {
 
 cat /dev/null <<EOF
 ------------------------------------------------------------------------
-https://github.com/client9/shlib - portable posix shell functions
-Public domain - http://unlicense.org
-https://github.com/client9/shlib/blob/master/LICENSE.md
+https://github.com/YouSysAdmin/headscale-pf - portable posix shell functions
+https://github.com/YouSysAdmin/headscale-pf/blob/master/LICENSE
 but credit (and pull requests) appreciated.
 ------------------------------------------------------------------------
 EOF
@@ -183,7 +182,7 @@ uname_os_check() {
   solaris) return 0 ;;
   windows) return 0 ;;
   esac
-  log_crit "uname_os_check '$(uname -s)' got converted to '$os' which is not a GOOS value. Please file bug at https://github.com/client9/shlib"
+  log_crit "uname_os_check '$(uname -s)' got converted to '$os' which is not a GOOS value. Please file bug at https://github.com/YouSysAdmin/headscale-pf"
   return 1
 }
 uname_arch_check() {
@@ -204,7 +203,7 @@ uname_arch_check() {
   s390x) return 0 ;;
   amd64p32) return 0 ;;
   esac
-  log_crit "uname_arch_check '$(uname -m)' got converted to '$arch' which is not a GOARCH value.  Please file bug report at https://github.com/client9/shlib"
+  log_crit "uname_arch_check '$(uname -m)' got converted to '$arch' which is not a GOARCH value.  Please file bug report at https://github.com/YouSysAdmin/headscale-pf"
   return 1
 }
 untar() {
@@ -312,7 +311,7 @@ hash_sha256_verify() {
     return 1
   fi
 
-  want=$(cat "${checksums}")
+  want=$(cat "${checksums}" | grep "${TARGET##*/}" | awk '{ print $1 }')
   if [ -z "$want" ]; then
     log_err "hash_sha256_verify unable to read checksum for '${TARGET}' in '${checksums}'"
     return 1
@@ -325,7 +324,7 @@ hash_sha256_verify() {
 }
 cat /dev/null <<EOF
 ------------------------------------------------------------------------
-End of functions from https://github.com/client9/shlib
+End of functions from https://github.com/YouSysAdmin/headscale-pf
 ------------------------------------------------------------------------
 EOF
 
@@ -362,10 +361,10 @@ adjust_arch
 
 log_info "found version: ${REALTAG} for ${TAG}/${PLATFORM}"
 
-NAME=${PROJECT_NAME}-${REALTAG}-${OS}-${ARCH}
+NAME=${PROJECT_NAME}_${REALTAG}_${OS}_${ARCH}
 TARBALL=${NAME}.${FORMAT}
 TARBALL_URL=${GITHUB_DOWNLOAD}/${REALTAG}/${TARBALL}
-CHECKSUM_FILE_NAME=${TARBALL}.sha256
+CHECKSUM_FILE_NAME=checksums.sha256
 CHECKSUM_FILE_URL=${GITHUB_DOWNLOAD}/${REALTAG}/${CHECKSUM_FILE_NAME}
 
 execute

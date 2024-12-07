@@ -1,0 +1,110 @@
+version: 2
+
+project_name: headscale-pf
+
+before:
+  hooks:
+    - go mod download
+
+release:
+  prerelease: false
+
+env:
+  - CGO_ENABLED=0
+
+builds:
+  - id: linux
+    main: ./cmd/headscale-pf
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - 7
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/yousysadmin/headscale-pf/pkg.Version={{.Version }}
+
+  - id: osx
+    main: ./cmd/headscale-pf
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/yousysadmin/headscale-pf/pkg.Version={{.Version }}
+
+  - id: windows
+    main: ./cmd/headscale-pf
+    goos:
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/yousysadmin/headscale-pf/pkg.Version={{.Version }}
+
+archives:
+  - name_template: >-
+      {{ .Binary }}_v{{ .Version }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}amd64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: "checksums.sha256"
+
+snapshot:
+  version_template: "{{ .Tag }}-devel"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+#brews:
+#  - name: headscale-pf
+#    repository:
+#      owner: yousysadmin
+#      name: homebrew-headscale-pf
+#    commit_author:
+#      name: yousysadmin
+#      email: work@sysalex.com
+#    folder: Formula
+#    homepage: https://github.com/yousysadmin/headscale-pf
+#    description: Obtaining information about groups and group members from external sources and populating groups in the Headscale policy
+#    test: |
+#      system "headscale-pf version"
+
+nfpms:
+  - file_name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}'
+    maintainer: Oleksii YouSysAdmin
+    homepage: https://github.com/yousysadmin/headscale-pf
+    description: Obtaining information about groups and group members from external sources and populating groups in the Headscale policy
+    license: "Apache-2.0"
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/bin
+    section: utils
+    contents:
+      - src: ./LICENSE
+        dst: /usr/share/doc/nfpm/copyright
+        file_info:
+          mode: 0644

@@ -7,11 +7,11 @@ CLI tool for managing user groups in a Headscale policy file.
 ## Supported sources
 
 - [x] Jumpcloud
+- [x] Authentik
 
 ## TODO
 
 - Sources
-    - Authentik
     - Auth0
 
 - Input policy format
@@ -40,8 +40,6 @@ curl -L https://raw.githubusercontent.com/yousysadmin/headscale-pf/master/script
 ## Usage
 
 ```
-Obtaining information about groups and group members from external sources and populating groups in the Headscale policy.
-
 Usage:
   headscale-pf [command]
 
@@ -51,14 +49,17 @@ Available Commands:
   prepare     Prepare policy
 
 Flags:
+      --endpoint string        Source endpoint (can use env var PF_ENDPOINT)
   -h, --help                   help for headscale-pf
       --input-policy string    Headscale policy file template (default "./policy.hjson")
       --no-color               Disable color output
       --output-policy string   Headscale prepared policy file (default "./current.json")
       --password string        A provider API user password (can use env var PF_USER_PASSWORD)
+      --source string          Source (can use env var PF_SOURCE)
       --strip-email-domain     Strip e-mail domain (default true)
       --token string           A provider API token (can use env var PF_TOKEN)
       --user string            A provider API user (can use env var PF_USER_NAME)
+  -v, --version                version for headscale-pf
 ```
 
 The `--strip-email-domain` flag must be set eq to `oid.strip_email_domain` in your Headscale server config,
@@ -66,11 +67,29 @@ this flag determines whether it is necessary to trim the domain from the user's 
 
 ## Example
 
-### Jumpcloud
+```json5
+{
+  "groups": {
+    "group:admin": [
+      "mega-admin"
+    ],
+    "group:network-all": [],
+    // The Best Service
+    "group:network-prod": [],
+    "group:network-stage": [],
+    "group:network-demo": [],
+  }
+}
+```
 
 ```sh
 // Fill policy user groups from Jumpcloud
-PF_TOKEN=0000000 headscale-pf prepare --input-policy=policy.hjson --output-policy=out.json
+headscale-pf prepare --token=OOjjHH --source=jc --input-policy=policy.hjson --output-policy=out.json
+
+// Or
+
+// Fill policy user groups from Authentik
+headscale-pf prepare --token=OOjjHH --source=ak --input-policy=policy.hjson --output-policy=out.json
 
 // Push policy to Headscale
 headscale policy set -f out.json
@@ -95,4 +114,4 @@ GetGroupMembers(groupId string, stripEmailDomain bool) ([]models.User, error)
 GetUserInfo(userId string, stripEmailDomain bool) (models.User, error)
 ```
 
-3. Add your source to `internal/sources/sources.go`
+3. Add your source to the `internal/sources/sources.go` file
