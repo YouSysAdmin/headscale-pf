@@ -1,6 +1,6 @@
 module github.com/yousysadmin/headscale-pf
 
-go 1.23.4
+go 1.24.2
 
 require (
 	github.com/TheJumpCloud/jcapi-go v3.0.0+incompatible
