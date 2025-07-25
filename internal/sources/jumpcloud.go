@@ -101,7 +101,7 @@ func (c Jumpcloud) GetUserInfo(userId string, stripEmailDomain bool) (models.Use
 
 	var userName string
 	if stripEmailDomain {
-		userName = strings.Split(user.Email, "@")[0]
+		userName = strings.Split(user.Email, "@")[0] + "@"
 	} else {
 		userName = user.Email
 	}

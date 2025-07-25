@@ -4,6 +4,11 @@ CLI tool for managing user groups in a Headscale policy file.
 
 [![Stand with Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner2-direct.svg)](https://github.com/vshymanskyy/StandWithUkraine/blob/main/docs/README.md)
 
+## Important
+For Headscale versions below 0.26.*, use headscale-pf version 0.0.3.
+Starting with version 1.0.0, headscale-pf uses a new user definition name format that corresponds to Headscale version 0.26.* and above.
+
+
 ## Supported sources
 
 - [x] Jumpcloud
@@ -13,10 +18,6 @@ CLI tool for managing user groups in a Headscale policy file.
 
 - Sources
     - Auth0
-
-- Input policy format
-    - Yaml
-    - HCL
 
 ## Install
 
