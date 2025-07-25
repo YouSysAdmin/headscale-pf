@@ -82,7 +82,7 @@ func (c Authentik) GetGroupMembers(groupId string, stripEmailDomain bool) ([]mod
 		var users []models.User
 		for _, u := range c.group.Users {
 			if stripEmailDomain {
-				u.Part = strings.Split(u.Email, "@")[0]
+				u.Part = strings.Split(u.Email, "@")[0] + "@"
 			} else {
 				u.Part = u.Email
 			}
