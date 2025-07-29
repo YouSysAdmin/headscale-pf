@@ -2,16 +2,44 @@ package policy
 
 import (
 	"encoding/json"
+	"net/netip"
 	"os"
 	"strings"
 
-	hsPolicy "github.com/juanfont/headscale/hscontrol/policy"
+	v2Policy "github.com/juanfont/headscale/hscontrol/policy/v2"
 	"github.com/tailscale/hujson"
 )
 
+var f v2Policy.Policy
+
 // Policy extend Headscale policy
 type Policy struct {
-	hsPolicy.ACLPolicy
+	Groups        map[string][]string     `json:"groups"`
+	Hosts         map[string]netip.Prefix `json:"hosts"`
+	TagOwners     map[string][]string     `json:"tagOwners"`
+	ACLs          []ACL                   `json:"acls"`
+	AutoApprovers AutoApprovers           `json:"autoApprovers"`
+	SSHs          []SSH                   `json:"ssh"`
+}
+
+type ACL struct {
+	Action       string   `json:"action"`
+	Protocol     string   `json:"proto"`
+	Sources      []string `json:"src"`
+	Destinations []string `json:"dst"`
+}
+
+type AutoApprovers struct {
+	Routes   map[string][]string `json:"routes"`
+	ExitNode []string            `json:"exitNode"`
+}
+
+type SSH struct {
+	Action       string   `json:"action"`
+	Sources      []string `json:"src"`
+	Destinations []string `json:"dst"`
+	Users        []string `json:"users"`
+	CheckPeriod  string   `json:"checkPeriod,omitempty"`
 }
 
 // ReadPolicyFromFile read Headscale policy from file
@@ -26,6 +54,7 @@ func (p *Policy) ReadPolicyFromFile(path string) error {
 	}
 	ast.Standardize()
 	data := ast.Pack()
+
 	err = json.Unmarshal(data, &p)
 
 	return err

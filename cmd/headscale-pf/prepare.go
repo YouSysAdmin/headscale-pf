@@ -60,10 +60,6 @@ func preparePolicy(client sources.Source, logCh chan<- string) error {
 		// Add the prefix 'group' to a group name
 		groupName := fmt.Sprintf("group:%s", g.Name)
 
-		// If, in the policy, there are static users for a group,
-		// then we add them, too
-		upg = append(upg, hsPolicy.Groups[groupName]...)
-
 		hsGroups[groupName] = upg
 	}
 	hsPolicy.AppendGroups(hsGroups)
