@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/yousysadmin/headscale-pf/internal/models"
 	"strings"
+
+	"github.com/yousysadmin/headscale-pf/internal/models"
 
 	jcapiv1 "github.com/TheJumpCloud/jcapi-go/v1"
 	jcapiv2 "github.com/TheJumpCloud/jcapi-go/v2"
@@ -44,7 +45,7 @@ func NewJCClient(config SourceConfig) (Jumpcloud, error) {
 
 // GetGroupByName Get Jumpcloud group by name
 func (c Jumpcloud) GetGroupByName(grounName string) (*models.Group, error) {
-	filter := map[string]interface{}{
+	filter := map[string]any{
 		"filter": []string{fmt.Sprintf("name:eq:%s", grounName)},
 		"limit":  int32(100),
 	}
@@ -64,25 +65,45 @@ func (c Jumpcloud) GetGroupByName(grounName string) (*models.Group, error) {
 	return nil, nil
 }
 
-// GetGroupMembers Get Jumpcloud group members
-func (c Jumpcloud) GetGroupMembers(groupId string, stripEmailDomain bool) ([]models.User, error) {
+// GetGroupMembers gets ALL JumpCloud group members (handles pagination)
+func (c Jumpcloud) GetGroupMembers(groupID string, stripEmailDomain bool) ([]models.User, error) {
 	var users []models.User
 
-	options := map[string]interface{}{
-		"limit": int32(100),
+	const pageSize int32 = 100
+	opts := map[string]any{
+		"limit":  pageSize,
+		"fields": []string{"id"}, // reduce payload, we need only IDs here
 	}
 
-	groupUsers, _, err := c.V2.UserGroupsApi.GraphUserGroupMembership(c.V2Auth, groupId, c.ContentType, c.ContentType, options)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, u := range groupUsers {
-		user, err := c.GetUserInfo(u.Id, stripEmailDomain)
+	for {
+		groupUsers, _, err := c.V2.UserGroupsApi.
+			GraphUserGroupMembership(c.V2Auth, groupID, c.ContentType, c.ContentType, opts)
 		if err != nil {
 			return nil, err
 		}
-		users = append(users, user)
+
+		if len(groupUsers) == 0 {
+			break
+		}
+
+		for _, u := range groupUsers {
+			user, err := c.GetUserInfo(u.Id, stripEmailDomain)
+			if err != nil {
+				return nil, err
+			}
+			users = append(users, user)
+		}
+
+		if int32(len(groupUsers)) < pageSize {
+			break
+		}
+
+		// set offset to next page
+		if v, ok := opts["skip"].(int32); ok {
+			opts["skip"] = v + int32(len(groupUsers))
+		} else {
+			opts["skip"] = int32(len(groupUsers))
+		}
 	}
 
 	return users, nil
@@ -90,7 +111,7 @@ func (c Jumpcloud) GetGroupMembers(groupId string, stripEmailDomain bool) ([]mod
 
 // GetUserInfo get Jumpcloud user info
 func (c Jumpcloud) GetUserInfo(userId string, stripEmailDomain bool) (models.User, error) {
-	options := map[string]interface{}{
+	options := map[string]any{
 		"limit": int32(100),
 	}
 
