@@ -1,8 +1,9 @@
 package term_color
 
 import (
-	"github.com/jagottsicher/termcolor"
 	"os"
+
+	"github.com/jagottsicher/termcolor"
 )
 
 // CheckTerminalColorSupport checking terminal color support
