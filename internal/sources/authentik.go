@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/yousysadmin/headscale-pf/internal/models"
-	"github.com/yousysadmin/headscale-pf/pkg/tools"
-	api "goauthentik.io/api/v3"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/yousysadmin/headscale-pf/internal/models"
+	"github.com/yousysadmin/headscale-pf/pkg/tools"
+	api "goauthentik.io/api/v3"
 )
 
 // Authentik source

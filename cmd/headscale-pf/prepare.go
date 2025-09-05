@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+
 	"github.com/yousysadmin/headscale-pf/internal/models"
 	"github.com/yousysadmin/headscale-pf/internal/policy"
 	"github.com/yousysadmin/headscale-pf/internal/sources"

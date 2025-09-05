@@ -1,23 +1,27 @@
 package main
 
 import (
+	"os"
+
 	"github.com/yousysadmin/headscale-pf/internal/sources"
 	"github.com/yousysadmin/headscale-pf/pkg"
-	"github.com/yousysadmin/headscale-pf/pkg/term-color"
-	"os"
+	term_color "github.com/yousysadmin/headscale-pf/pkg/term-color"
 
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )
 
 var (
-	inputPolicyFile  string
-	outputPolicyFile string
-	source           string
-	endpoint         string
-	token            string
-	username         string
-	userpass         string
+	inputPolicyFile        string
+	outputPolicyFile       string
+	source                 string
+	endpoint               string
+	token                  string
+	ldapBindPassword       string
+	ldapBindDN             string
+	ldapBaseDN             string
+	ldapDefaultEmailDomain string
+
 	logger           *pterm.Logger
 	noColor          bool
 	stripEmailDomain bool
@@ -40,9 +44,14 @@ func init() {
 	cliCmd.PersistentFlags().StringVar(&source, "source", os.Getenv("PF_SOURCE"), "Source (can use env var PF_SOURCE)")
 	cliCmd.PersistentFlags().StringVar(&endpoint, "endpoint", os.Getenv("PF_ENDPOINT"), "Source endpoint (can use env var PF_ENDPOINT)")
 	cliCmd.PersistentFlags().StringVar(&token, "token", os.Getenv("PF_TOKEN"), "A provider API token (can use env var PF_TOKEN)")
-	// In the future, for other sources with basic auth, etc. :)
-	cliCmd.PersistentFlags().StringVar(&username, "user", os.Getenv("PF_USER_NAME"), "A provider API user (can use env var PF_USER_NAME)")
-	cliCmd.PersistentFlags().StringVar(&userpass, "password", os.Getenv("PF_USER_PASSWORD"), "A provider API user password (can use env var PF_USER_PASSWORD)")
+
+	// Specific flags for the LDAP source
+	cliCmd.PersistentFlags().StringVar(&ldapBaseDN, "ldap-base-dn", os.Getenv("PF_LDAP_BASE_DN"), "Base DN to use for LDAP searches (can use env var PF_LDAP_BASE_DN)")
+	cliCmd.PersistentFlags().StringVar(&ldapBindDN, "ldap-bind-dn", os.Getenv("PF_LDAP_BIND_DN"), "Distinguished Name of the LDAP bind user account (can use env var PF_LDAP_BIND_DN)")
+	cliCmd.PersistentFlags().StringVar(&ldapDefaultEmailDomain, "ldap-default-email-domain", os.Getenv("PF_LDAP_DEFAULT_EMAIL_DOMAIN"),
+		"Default email domain to append when user entries lack a mail attribute (can use env var PF_LDAP_DEFAULT_USER_EMAIL_DOMAIN)",
+	)
+	cliCmd.PersistentFlags().StringVar(&ldapBindPassword, "ldap-bind-password", os.Getenv("PF_LDAP_BIND_PASSWORD"), "LDAP password (can use env var PF_LDAP_BIND_PASSWORD)")
 
 	// Disable colors if terminal doesn't support or user set flag --no-color
 	if !term_color.CheckTerminalColorSupport() || noColor {
@@ -76,7 +85,15 @@ var prepare = &cobra.Command{
 		}()
 
 		// Make a new client
-		client, err := sources.NewSource(sources.SourceConfig{Name: source, Token: token, Endpoint: endpoint, Username: username, Password: userpass})
+		client, err := sources.NewSource(sources.SourceConfig{
+			Name:                   source,
+			Token:                  token,
+			Endpoint:               endpoint,
+			LDAPBindPassword:       ldapBindPassword,
+			LDAPBindDN:             ldapBindDN,
+			LDAPBaseDN:             ldapBaseDN,
+			LDAPDefaultEmailDomain: ldapDefaultEmailDomain,
+		})
 		if err != nil {
 			errorInfo := map[string]any{
 				"Error": err.Error(),
