@@ -13,6 +13,7 @@ Starting with version 1.0.0, headscale-pf uses a new user definition name format
 
 - [x] Jumpcloud
 - [x] Authentik
+- [x] LDAP/OpenLDAP/AD (tested on Jumpcloud LDAP)
 
 ## TODO
 
@@ -50,17 +51,19 @@ Available Commands:
   prepare     Prepare policy
 
 Flags:
-      --endpoint string        Source endpoint (can use env var PF_ENDPOINT)
-  -h, --help                   help for headscale-pf
-      --input-policy string    Headscale policy file template (default "./policy.hjson")
-      --no-color               Disable color output
-      --output-policy string   Headscale prepared policy file (default "./current.json")
-      --password string        A provider API user password (can use env var PF_USER_PASSWORD)
-      --source string          Source (can use env var PF_SOURCE)
-      --strip-email-domain     Strip e-mail domain (default true)
-      --token string           A provider API token (can use env var PF_TOKEN)
-      --user string            A provider API user (can use env var PF_USER_NAME)
-  -v, --version                version for headscale-pf
+      --endpoint string                    Source endpoint (can use env var PF_ENDPOINT)
+  -h, --help                               help for headscale-pf
+      --input-policy string                Headscale policy file template (default "./policy.hjson")
+      --ldap-base-dn string                Base DN to use for LDAP searches (can use env var PF_LDAP_BASE_DN)
+      --ldap-bind-dn string                Distinguished Name of the LDAP bind user account (can use env var PF_LDAP_BIND_DN)
+      --ldap-bind-password string          LDAP password (can use env var PF_LDAP_BIND_PASSWORD)
+      --ldap-default-email-domain string   Default email domain to append when user entries lack a mail attribute (can use env var PF_LDAP_DEFAULT_USER_EMAIL_DOMAIN)
+      --no-color                           Disable color output
+      --output-policy string               Headscale prepared policy file (default "./current.json")
+      --source string                      Source (can use env var PF_SOURCE)
+      --strip-email-domain                 Strip e-mail domain (default true)
+      --token string                       A provider API token (can use env var PF_TOKEN) (default "jca_2W2JQEs6wKqHckLj2kqfCWTw4sVEK5jQygdG")
+  -v, --version                            version for headscale-pf
 ```
 
 The `--strip-email-domain` flag must be set eq to `oid.strip_email_domain` in your Headscale server config,
@@ -83,17 +86,41 @@ this flag determines whether it is necessary to trim the domain from the user's 
 }
 ```
 
+### Jumpcloud
 ```sh
 // Fill policy user groups from Jumpcloud
 headscale-pf prepare --token=OOjjHH --source=jc --input-policy=policy.hjson --output-policy=out.json
 
-// Or
+// Push policy to Headscale
+headscale policy set -f out.json
+```
 
+### Authentik
+```sh
 // Fill policy user groups from Authentik
 headscale-pf prepare --token=OOjjHH --source=ak --input-policy=policy.hjson --output-policy=out.json
 
 // Push policy to Headscale
 headscale policy set -f out.json
+```
+
+### LDAP
+
+`--endpoint` - LDAP server address "host:389" or "host:636" (can use env var PF_ENDPOINT)  
+`--ldap-base-dn` - Base DN to use for LDAP searches (can use env var PF_LDAP_BASE_DN)  
+`--ldap-bind-dn` - Distinguished Name of the LDAP bind user account (can use env var PF_LDAP_BIND_DN)  
+`--ldap-bind-password` - LDAP password (can use env var PF_LDAP_BIND_PASSWORD)  
+`--ldap-default-email-domain` - Default email domain to append when user entries lack a mail attribute (can use env var PF_LDAP_DEFAULT_USER_EMAIL_DOMAIN)  
+
+
+```sh
+headscale-pf prepare --source ldap \
+                     --input-policy policy.hjson \
+                     --output-policy=out.json \
+                     --endpoint ldap.jumpcloud.com:636 \
+                     --ldap-base-dn "o=<ORG_ID>,dc=jumpcloud,dc=com" \
+                     --ldap-bind-dn "uid=<Service_User>,ou=Users,o=<ORG_ID>,dc=jumpcloud,dc=com" \
+                     --ldap-bind-password "MySuperSecretPassword"
 ```
 
 ## Add a new source
@@ -115,4 +142,4 @@ GetGroupMembers(groupId string, stripEmailDomain bool) ([]models.User, error)
 GetUserInfo(userId string, stripEmailDomain bool) (models.User, error)
 ```
 
-3. Add your source to the `internal/sources/sources.go` file
+3. Add your source to the `internal/sources/sources.go` file and update `internal/sources/sources.go`.
