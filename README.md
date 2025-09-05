@@ -89,7 +89,7 @@ this flag determines whether it is necessary to trim the domain from the user's 
 ### Jumpcloud
 ```sh
 // Fill policy user groups from Jumpcloud
-headscale-pf prepare --token=OOjjHH --source=jc --input-policy=policy.hjson --output-policy=out.json
+headscale-pf prepare --source=jc --token=OOjjHH --input-policy=policy.hjson --output-policy=out.json
 
 // Push policy to Headscale
 headscale policy set -f out.json
@@ -98,7 +98,7 @@ headscale policy set -f out.json
 ### Authentik
 ```sh
 // Fill policy user groups from Authentik
-headscale-pf prepare --token=OOjjHH --source=ak --input-policy=policy.hjson --output-policy=out.json
+headscale-pf prepare --source=ak --endpoint "https://example.com" --token=OOjjHH --input-policy=policy.hjson --output-policy=out.json
 
 // Push policy to Headscale
 headscale policy set -f out.json
