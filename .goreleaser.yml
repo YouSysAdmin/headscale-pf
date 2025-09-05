@@ -7,7 +7,7 @@ before:
     - go mod download
 
 release:
-  prerelease: false
+  prerelease: "false"
 
 env:
   - CGO_ENABLED=0
@@ -22,7 +22,7 @@ builds:
       - arm64
       - arm
     goarm:
-      - 7
+      - "7"
     flags:
       - -trimpath
     ldflags:
@@ -62,7 +62,7 @@ archives:
       {{- if .Arm }}v{{ .Arm }}{{ end }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats: ['zip']
 
 checksum:
   name_template: "checksums.sha256"
@@ -96,7 +96,7 @@ nfpms:
     maintainer: Oleksii YouSysAdmin
     homepage: https://github.com/yousysadmin/headscale-pf
     description: Obtaining information about groups and group members from external sources and populating groups in the Headscale policy
-    license: "Apache-2.0"
+    license: "MIT"
     formats:
       - deb
       - rpm
