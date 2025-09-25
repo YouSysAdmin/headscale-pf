@@ -77,20 +77,6 @@ changelog:
       - "^docs:"
       - "^test:"
 
-#brews:
-#  - name: headscale-pf
-#    repository:
-#      owner: yousysadmin
-#      name: homebrew-headscale-pf
-#    commit_author:
-#      name: yousysadmin
-#      email: work@sysalex.com
-#    folder: Formula
-#    homepage: https://github.com/yousysadmin/headscale-pf
-#    description: Obtaining information about groups and group members from external sources and populating groups in the Headscale policy
-#    test: |
-#      system "headscale-pf version"
-
 nfpms:
   - file_name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}'
     maintainer: Oleksii YouSysAdmin
@@ -108,3 +94,36 @@ nfpms:
         dst: /usr/share/doc/nfpm/copyright
         file_info:
           mode: 0644
+
+dockers:
+  # linux/amd64
+  - ids: [linux]
+    image_templates:
+      - ghcr.io/yousysadmin/headscale-pf:{{ .Version }}-amd64
+    dockerfile: build/docker/Dockerfile
+    use: buildx
+    build_flag_templates:
+      - --platform=linux/amd64
+      - --label=org.opencontainers.image.source={{ .ProjectURL }}
+      - --label=org.opencontainers.image.version={{ .Version }}
+
+  # linux/arm64
+  - ids: [linux]
+    image_templates:
+      - ghcr.io/yousysadmin/headscale-pf:{{ .Version }}-arm64
+    dockerfile: build/docker/Dockerfile
+    use: buildx
+    build_flag_templates:
+      - --platform=linux/arm64
+      - --label=org.opencontainers.image.source={{ .ProjectURL }}
+      - --label=org.opencontainers.image.version={{ .Version }}
+
+docker_manifests:
+  - name_template: ghcr.io/yousysadmin/headscale-pf:{{ .Version }}
+    image_templates:
+      - ghcr.io/yousysadmin/headscale-pf:{{ .Version }}-amd64
+      - ghcr.io/yousysadmin/headscale-pf:{{ .Version }}-arm64
+  - name_template: ghcr.io/yousysadmin/headscale-pf:latest
+    image_templates:
+      - ghcr.io/yousysadmin/headscale-pf:{{ .Version }}-amd64
+      - ghcr.io/yousysadmin/headscale-pf:{{ .Version }}-arm64
