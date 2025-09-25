@@ -104,7 +104,7 @@ dockers:
     use: buildx
     build_flag_templates:
       - --platform=linux/amd64
-      - --label=org.opencontainers.image.source={{ .ProjectURL }}
+      - --label=org.opencontainers.image.source=https://github.com/YouSysAdmin/headscale-pf
       - --label=org.opencontainers.image.version={{ .Version }}
 
   # linux/arm64
@@ -115,7 +115,7 @@ dockers:
     use: buildx
     build_flag_templates:
       - --platform=linux/arm64
-      - --label=org.opencontainers.image.source={{ .ProjectURL }}
+      - --label=org.opencontainers.image.source=https://github.com/YouSysAdmin/headscale-pf
       - --label=org.opencontainers.image.version={{ .Version }}
 
 docker_manifests:
