@@ -22,7 +22,7 @@ mkdir -p "$WORK_DIR"
 
 # Prepare policy
 log "Running headscale-pf prepare (source=${SOURCE}) input=${INPUT_POLICY} output=${OUTPUT_POLICY}"
-if ! sh -c "headscale-pf -input-policy '${INPUT_POLICY}' --output-policy '${OUTPUT_POLICY}' prepare --source '${SOURCE}' ${HEADSCALE_PF_EXTRA_FLAGS:-}"; then
+if ! sh -c "headscale-pf --input-policy '${INPUT_POLICY}' --output-policy '${OUTPUT_POLICY}' prepare --source '${SOURCE}' ${HEADSCALE_PF_EXTRA_FLAGS:-}"; then
   rc=$?
   fail "headscale-pf prepare failed with exit code ${rc}"
 fi
