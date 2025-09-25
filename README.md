@@ -125,3 +125,85 @@ headscale policy set -f out.json
    - `GetGroupMembers(groupID string, stripEmailDomain bool) ([]models.User, error)`
    - `GetUserInfo(userID string, stripEmailDomain bool) (models.User, error)`
 3. Register it in `internal/sources/sources.go`.
+
+
+---
+
+## Use CI
+Use the Headscale-PF Docker image inside your CI (the Docker image contains the Headscale CLI)  
+
+`PF_TOKEN` - Jumpcloud/etc. API token  
+`HEADSCALE_CLI_ADDRESS` - Headscale GRPC Endpoint  
+`HEADSCALE_CLI_API_KEY` - Headscale GRPC Token  
+
+```yaml
+# .github/workflows/policy.yaml
+name: Headscale Policy
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply_policy:
+        description: "Apply policy after generation?"
+        type: boolean
+        required: true
+        default: true
+      save_artifact:
+        description: "Save generated policy.json as artifact?"
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  generate-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run policy prepare
+        env:
+          IMAGE: ghcr.io/yousysadmin/headscale-pf:latest
+          PF_TOKEN: ${{ secrets.PF_TOKEN }}
+          HEADSCALE_CLI_ADDRESS: ${{ secrets.HEADSCALE_CLI_ADDRESS }}
+          HEADSCALE_CLI_API_KEY: ${{ secrets.HEADSCALE_CLI_API_KEY }}
+          APPLY_INPUT: ${{ github.event.inputs.apply_policy }}
+        run: |
+          set -euxo pipefail
+
+          docker pull "$IMAGE"
+
+          APPLY_FLAG=""
+          if [ "${APPLY_INPUT}" = "true" ]; then
+            APPLY_FLAG="-e APPLY_POLICY=1"
+          fi
+
+          # fix: headscale config file should be present anyway
+          touch config.yaml
+
+          docker run --rm \
+            --user "$(id -u)":"$(id -g)" \
+            -e PF_TOKEN="${PF_TOKEN}" \
+            ${APPLY_FLAG} \
+            -e HEADSCALE_CLI_ADDRESS="${HEADSCALE_CLI_ADDRESS}" \
+            -e HEADSCALE_CLI_API_KEY="${HEADSCALE_CLI_API_KEY}" \
+            -e INPUT_POLICY="/work/policy.hjson" \
+            -e OUTPUT_POLICY="/work/policy.json" \
+            -e SOURCE="jc" \
+            -e RETRIES="5" \
+            -e RETRY_DELAY_SEC="6" \
+            -v "$GITHUB_WORKSPACE:/work" \
+            "$IMAGE"
+
+      - name: Upload policy.json artifact
+        if: ${{ github.event.inputs.save_artifact == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: policy.json
+          path: ${{ github.workspace }}/policy.json
+
+```
