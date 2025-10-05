@@ -3,6 +3,7 @@ module github.com/yousysadmin/headscale-pf
 go 1.25.1
 
 require (
+	github.com/Nerzal/gocloak/v13 v13.9.0
 	github.com/TheJumpCloud/jcapi-go v3.0.0+incompatible
 	github.com/go-openapi/runtime v0.28.0
 	github.com/jagottsicher/termcolor v1.0.2
@@ -27,6 +28,10 @@ require (
 	github.com/go-openapi/swag/stringutils v0.24.0 // indirect
 	github.com/go-openapi/swag/typeutils v0.24.0 // indirect
 	github.com/go-openapi/swag/yamlutils v0.24.0 // indirect
+	github.com/go-resty/resty/v2 v2.7.0 // indirect
+	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/segmentio/ksuid v1.0.4 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b // indirect
 )

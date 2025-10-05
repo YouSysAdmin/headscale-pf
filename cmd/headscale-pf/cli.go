@@ -21,6 +21,7 @@ var (
 	ldapBindDN             string
 	ldapBaseDN             string
 	ldapDefaultEmailDomain string
+	keycloakRealm          string
 
 	logger           *pterm.Logger
 	noColor          bool
@@ -52,6 +53,9 @@ func init() {
 		"Default email domain to append when user entries lack a mail attribute (can use env var PF_LDAP_DEFAULT_USER_EMAIL_DOMAIN)",
 	)
 	cliCmd.PersistentFlags().StringVar(&ldapBindPassword, "ldap-bind-password", os.Getenv("PF_LDAP_BIND_PASSWORD"), "LDAP password (can use env var PF_LDAP_BIND_PASSWORD)")
+
+	// Specifc flags for the Keycloak source
+	cliCmd.PersistentFlags().StringVar(&keycloakRealm, "keycloak-realm", os.Getenv("PF_KEYCLOAK_REALM"), "Keycloak Realm (can use env var PF_KEYCLOAK_REALM)")
 
 	// Disable colors if terminal doesn't support or user set flag --no-color
 	if !term_color.CheckTerminalColorSupport() || noColor {
@@ -93,6 +97,7 @@ var prepare = &cobra.Command{
 			LDAPBindDN:             ldapBindDN,
 			LDAPBaseDN:             ldapBaseDN,
 			LDAPDefaultEmailDomain: ldapDefaultEmailDomain,
+			KeycloakRealm:          keycloakRealm,
 		})
 		if err != nil {
 			errorInfo := map[string]any{

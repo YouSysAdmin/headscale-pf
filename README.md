@@ -19,6 +19,7 @@ It integrates with external identity providers such as **Jumpcloud**, **Authenti
 - Jumpcloud
 - Authentik
 - LDAP / OpenLDAP / Active Directory** (tested with Jumpcloud LDAP)
+- Keycloak
 
 Planned:
 - Auth0
@@ -59,19 +60,28 @@ headscale-pf [command] [flags]
 - `completion` – generate autocomplete script for your shell
 - `help` – show help for any command
 
+### Sources
+- `jc`, `jumpcloud` - Jumpcloud
+- `ak`, `authentik` - Authentik
+- `ldap`, `ldaps` - LDAP
+- `kk`, `keycloak` - Keycloak
+
 ### Global Flags
-- `--source string` → source type (`jc`, `ak`, `ldap`) (`PF_SOURCE`)
-- `--endpoint string` → source endpoint (`PF_ENDPOINT`)
-- `--token string` → API token (`PF_TOKEN`)
-- `--input-policy string` → input policy template (default: `./policy.hjson`)
-- `--output-policy string` → output policy file (default: `./current.json`)
-- `--ldap-base-dn string` → LDAP base DN (`PF_LDAP_BASE_DN`)
-- `--ldap-bind-dn string` → LDAP bind DN (`PF_LDAP_BIND_DN`)
-- `--ldap-bind-password string` → LDAP password (`PF_LDAP_BIND_PASSWORD`)
-- `--ldap-default-email-domain string` → LDAP default email domain (`PF_LDAP_DEFAULT_USER_EMAIL_DOMAIN`)
-- `--strip-email-domain` → strip email domain (default: `true`) – must match Headscale config
-- `--no-color` → disable colored output
-- `-v, --version` → show version
+| Flag / Option                  | Description                                         | Env var                              | Default            |
+|--------------------------------|-----------------------------------------------------|--------------------------------------|--------------------|
+| `--source string`              | Source type (`jc`, `ak`, `ldap`, `kk`)              | `PF_SOURCE`                          | –                  |
+| `--endpoint string`            | Source endpoint                                     | `PF_ENDPOINT`                        | –                  |
+| `--token string`               | API token                                           | `PF_TOKEN`                           | –                  |
+| `--input-policy string`        | Input policy template                               | –                                    | `./policy.hjson`   |
+| `--output-policy string`       | Output policy file                                  | –                                    | `./current.json`   |
+| `--ldap-base-dn string`        | LDAP base DN                                        | `PF_LDAP_BASE_DN`                    | –                  |
+| `--ldap-bind-dn string`        | LDAP bind DN                                        | `PF_LDAP_BIND_DN`                    | –                  |
+| `--ldap-bind-password string`  | LDAP password                                       | `PF_LDAP_BIND_PASSWORD`              | –                  |
+| `--ldap-default-email-domain`  | LDAP default email domain                           | `PF_LDAP_DEFAULT_USER_EMAIL_DOMAIN`  | –                  |
+| `--keycloak-realm string`      | Keycloak Realm                                      | `PF_KEYCLOAK_REALM`                  | –                  |
+| `--strip-email-domain`         | Strip email domain (must match Headscale config)    | –                                    | `true`             |
+| `--no-color`                   | Disable colored output                              | –                                    | –                  |
+| `-v`, `--version`              | Show version                                        | –                                    | –                  |
 
 ---
 

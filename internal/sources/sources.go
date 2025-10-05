@@ -22,17 +22,20 @@ type SourceConfig struct {
 	LDAPBindDN             string // LDAP BindDN
 	LDAPBaseDN             string // LDAP BaseDN
 	LDAPDefaultEmailDomain string // Default email domain what used for synthesize an email when none is present (username@DefaultEmailDomain).
+	KeycloakRealm          string // Keycloak Realm
 }
 
 // NewSource init source
 func NewSource(config SourceConfig) (Source, error) {
 	switch config.Name {
-	case "jc":
+	case "jc", "jumpcloud":
 		return NewJCClient(config)
-	case "ak":
+	case "ak", "authentik":
 		return NewAuthentikClient(config)
 	case "ldap", "ldaps":
 		return NewLDAPClient(config)
+	case "kk", "keycloak":
+		return NewKeycloakClient(config)
 	default:
 		return nil, fmt.Errorf("unknown source name")
 	}
