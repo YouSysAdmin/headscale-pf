@@ -119,7 +119,7 @@ func (c *LDAP) GetGroupByName(groupName string) (*models.Group, error) {
 // For posixGroup, it resolves memberUid logins to user entries.
 // For groupOfNames/group, it resolves each member DN to a user entry.
 // If ExpandOneLevelNested is true, a member that is itself a group will be expanded one level.
-func (c *LDAP) GetGroupMembers(groupID string, stripEmailDomain bool) ([]models.User, error) {
+func (c *LDAP) GetGroupMembers(groupID string) ([]models.User, error) {
 	conn, err := c.connect()
 	if err != nil {
 		return nil, err
@@ -147,7 +147,7 @@ func (c *LDAP) GetGroupMembers(groupID string, stripEmailDomain bool) ([]models.
 	if strings.Contains(oc, "posixgroup") {
 		memberUids := group.GetAttributeValues(c.PosixMemberUidAttr)
 		for _, u := range memberUids {
-			user, err := c.lookupUserByLogin(conn, u, stripEmailDomain)
+			user, err := c.lookupUserByLogin(conn, u)
 			if err != nil {
 				// Skip missing users, keep going
 				continue
@@ -204,7 +204,7 @@ func (c *LDAP) GetGroupMembers(groupID string, stripEmailDomain bool) ([]models.
 			return users, ctx.Err()
 		default:
 		}
-		u, err := c.lookupUserByDN(conn, dn, stripEmailDomain)
+		u, err := c.lookupUserByDN(conn, dn)
 		if err == nil {
 			users = append(users, u)
 		}
@@ -214,7 +214,7 @@ func (c *LDAP) GetGroupMembers(groupID string, stripEmailDomain bool) ([]models.
 
 // GetUserInfo resolves a user by ID. If userID looks like a DN, it loads that DN.
 // Otherwise it treats userID as a login (sAMAccountName/uid/cn—config-driven) and searches.
-func (c *LDAP) GetUserInfo(userID string, stripEmailDomain bool) (models.User, error) {
+func (c *LDAP) GetUserInfo(userID string) (models.User, error) {
 	conn, err := c.connect()
 	if err != nil {
 		return models.User{}, err
@@ -223,10 +223,10 @@ func (c *LDAP) GetUserInfo(userID string, stripEmailDomain bool) (models.User, e
 
 	// DN path
 	if strings.Contains(userID, "=") && strings.Contains(userID, ",") {
-		return c.lookupUserByDN(conn, userID, stripEmailDomain)
+		return c.lookupUserByDN(conn, userID)
 	}
 	// Otherwise treat as login name (uid/sAMAccountName/cn)
-	return c.lookupUserByLogin(conn, userID, stripEmailDomain)
+	return c.lookupUserByLogin(conn, userID)
 }
 
 // connect dials the LDAP server and performs a simple bind.
@@ -286,7 +286,7 @@ func (c *LDAP) dnIsGroup(conn *ldap.Conn, dn string) (bool, error) {
 
 // lookupUserByDN fetches a user entry by its DN (base-object search) and maps
 // it into models.User via entryToUser.
-func (c *LDAP) lookupUserByDN(conn *ldap.Conn, dn string, stripEmailDomain bool) (models.User, error) {
+func (c *LDAP) lookupUserByDN(conn *ldap.Conn, dn string) (models.User, error) {
 	req := ldap.NewSearchRequest(
 		dn,
 		ldap.ScopeBaseObject, ldap.NeverDerefAliases, 1, 5, false,
@@ -299,13 +299,13 @@ func (c *LDAP) lookupUserByDN(conn *ldap.Conn, dn string, stripEmailDomain bool)
 		return models.User{}, fmt.Errorf("user DN %q not found", dn)
 	}
 	e := sr.Entries[0]
-	return c.entryToUser(e, stripEmailDomain), nil
+	return c.entryToUser(e), nil
 }
 
 // lookupUserByLogin searches the directory subtree (BaseDN) for a user whose
 // login attributes (UserLoginAttrs) equal the provided login. It limits results
 // to avoid ambiguity and returns the first match mapped via entryToUser.
-func (c *LDAP) lookupUserByLogin(conn *ldap.Conn, login string, stripEmailDomain bool) (models.User, error) {
+func (c *LDAP) lookupUserByLogin(conn *ldap.Conn, login string) (models.User, error) {
 	// Build an OR filter across allowed user objectClasses and login attrs
 	loginFilterParts := make([]string, 0, len(c.UserLoginAttrs))
 	for _, a := range c.UserLoginAttrs {
@@ -324,37 +324,35 @@ func (c *LDAP) lookupUserByLogin(conn *ldap.Conn, login string, stripEmailDomain
 	if err != nil || len(sr.Entries) == 0 {
 		return models.User{}, fmt.Errorf("user %q not found", login)
 	}
-	return c.entryToUser(sr.Entries[0], stripEmailDomain), nil
+	return c.entryToUser(sr.Entries[0]), nil
 }
 
 // entryToUser converts an LDAP entry into models.User.
 // It picks the first non-empty attribute from UserLoginAttrs as "username" and
 // prefers UserEmailAttr for the email. If the email is absent but a username is
 // available and DefaultEmailDomain is set, it synthesizes username@DefaultEmailDomain.
-// When stripEmailDomain is true and the email contains "@", only the local part is returned.
-func (c *LDAP) entryToUser(e *ldap.Entry, stripEmailDomain bool) models.User {
+func (c *LDAP) entryToUser(e *ldap.Entry) models.User {
 	// Username (preferred attr in order)
-	var username string
+	var userName string
 	for _, a := range c.UserLoginAttrs {
 		if v := e.GetAttributeValue(a); v != "" {
-			username = v
+			userName = v
+			if !strings.Contains(userName, "@") {
+				userName += "@"
+			}
 			break
 		}
 	}
 
 	// Email (fallback: synthesize from username)
 	email := e.GetAttributeValue(c.UserEmailAttr)
-	if email == "" && username != "" && c.DefaultEmailDomain != "" {
-		email = fmt.Sprintf("%s@%s", username, c.DefaultEmailDomain)
+	if email == "" && userName != "" && c.DefaultEmailDomain != "" {
+		email = fmt.Sprintf("%s%s", userName, c.DefaultEmailDomain)
 	}
-	if stripEmailDomain && strings.Contains(email, "@") {
-		email = strings.Split(email, "@")[0] + "@"
-	}
-
-	// Map to your models.User. Adjust field names if they differ.
+	// Map to models.User. Adjust field names if they differ.
 	return models.User{
-		ID:    e.DN,  // user ID = DN
-		Email: email, // or Username/Name depending on models.User
-		Part:  email,
+		ID:       e.DN, // user ID = DN
+		Email:    email,
+		Username: userName,
 	}
 }

@@ -9,8 +9,8 @@ import (
 // Source interface
 type Source interface {
 	GetGroupByName(grounName string) (*models.Group, error)
-	GetGroupMembers(groupId string, stripEmailDomain bool) ([]models.User, error)
-	GetUserInfo(userId string, stripEmailDomain bool) (models.User, error)
+	GetGroupMembers(groupId string) ([]models.User, error)
+	GetUserInfo(userId string) (models.User, error)
 }
 
 // SourceConfig config source
