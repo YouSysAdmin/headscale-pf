@@ -66,7 +66,7 @@ func (c Jumpcloud) GetGroupByName(grounName string) (*models.Group, error) {
 }
 
 // GetGroupMembers gets ALL JumpCloud group members (handles pagination)
-func (c Jumpcloud) GetGroupMembers(groupID string, stripEmailDomain bool) ([]models.User, error) {
+func (c Jumpcloud) GetGroupMembers(groupID string) ([]models.User, error) {
 	var users []models.User
 
 	const pageSize int32 = 100
@@ -87,7 +87,7 @@ func (c Jumpcloud) GetGroupMembers(groupID string, stripEmailDomain bool) ([]mod
 		}
 
 		for _, u := range groupUsers {
-			user, err := c.GetUserInfo(u.Id, stripEmailDomain)
+			user, err := c.GetUserInfo(u.Id)
 			if err != nil {
 				return nil, err
 			}
@@ -110,7 +110,7 @@ func (c Jumpcloud) GetGroupMembers(groupID string, stripEmailDomain bool) ([]mod
 }
 
 // GetUserInfo get Jumpcloud user info
-func (c Jumpcloud) GetUserInfo(userId string, stripEmailDomain bool) (models.User, error) {
+func (c Jumpcloud) GetUserInfo(userId string) (models.User, error) {
 	options := map[string]any{
 		"limit": int32(100),
 	}
@@ -120,17 +120,15 @@ func (c Jumpcloud) GetUserInfo(userId string, stripEmailDomain bool) (models.Use
 		return models.User{}, err
 	}
 
-	var userName string
-	if stripEmailDomain {
-		userName = strings.Split(user.Email, "@")[0] + "@"
-	} else {
-		userName = user.Email
+	userName := user.Username
+	if !strings.Contains(userName, "@") {
+		userName += "@"
 	}
 
 	userInfo := models.User{
-		ID:    user.Id,
-		Email: user.Email,
-		Part:  userName,
+		ID:       user.Id,
+		Email:    user.Email,
+		Username: userName,
 	}
 
 	return userInfo, nil

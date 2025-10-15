@@ -69,7 +69,6 @@ headscale-pf [command] [flags]
 - `--ldap-bind-dn string` → LDAP bind DN (`PF_LDAP_BIND_DN`)
 - `--ldap-bind-password string` → LDAP password (`PF_LDAP_BIND_PASSWORD`)
 - `--ldap-default-email-domain string` → LDAP default email domain (`PF_LDAP_DEFAULT_USER_EMAIL_DOMAIN`)
-- `--strip-email-domain` → strip email domain (default: `true`) – must match Headscale config
 - `--no-color` → disable colored output
 - `-v, --version` → show version
 
@@ -122,8 +121,8 @@ headscale policy set -f out.json
 1. Create a new file under `internal/sources/`.
 2. Implement the interface:
    - `GetGroupByName(groupName string) (*models.Group, error)`
-   - `GetGroupMembers(groupID string, stripEmailDomain bool) ([]models.User, error)`
-   - `GetUserInfo(userID string, stripEmailDomain bool) (models.User, error)`
+   - `GetGroupMembers(groupID string) ([]models.User, error)`
+   - `GetUserInfo(userID string) (models.User, error)`
 3. Register it in `internal/sources/sources.go`.
 
 

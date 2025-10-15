@@ -66,7 +66,7 @@ func (c Authentik) GetGroupByName(grounName string) (*models.Group, error) {
 		group.Name = req.Results[0].GetName()
 
 		for _, u := range req.Results[0].GetUsersObj() {
-			group.Users = append(group.Users, models.User{ID: u.Uid, Email: *u.Email})
+			group.Users = append(group.Users, models.User{ID: u.Uid, Email: *u.Email, Username: u.Username})
 		}
 
 		c.group.Users = group.Users
@@ -78,15 +78,16 @@ func (c Authentik) GetGroupByName(grounName string) (*models.Group, error) {
 }
 
 // GetGroupMembers Get Authentik group members
-func (c Authentik) GetGroupMembers(groupId string, stripEmailDomain bool) ([]models.User, error) {
+func (c Authentik) GetGroupMembers(groupId string) ([]models.User, error) {
 	if len(c.group.Users) > 0 {
 		var users []models.User
 		for _, u := range c.group.Users {
-			if stripEmailDomain {
-				u.Part = strings.Split(u.Email, "@")[0] + "@"
-			} else {
-				u.Part = u.Email
+			userName := u.Username
+			if !strings.Contains(userName, "@") {
+				userName += "@"
 			}
+			u.Username = userName
+
 			users = append(users, u)
 		}
 		return users, nil
@@ -96,6 +97,6 @@ func (c Authentik) GetGroupMembers(groupId string, stripEmailDomain bool) ([]mod
 
 // GetUserInfo get Authentik user info
 // For Authentik is not used because Authentik returns group members while getting group info
-func (c Authentik) GetUserInfo(userId string, stripEmailDomain bool) (models.User, error) {
+func (c Authentik) GetUserInfo(userId string) (models.User, error) {
 	return models.User{}, nil
 }
