@@ -1,4 +1,4 @@
-ARG HEADSCALE_VERSION="0.26.1"
+ARG HEADSCALE_VERSION="0.27.1"
 # latest
 FROM ghcr.io/juanfont/headscale:${HEADSCALE_VERSION} AS headscale-src
 
