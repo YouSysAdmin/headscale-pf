@@ -19,6 +19,7 @@ It integrates with external identity providers such as **Jumpcloud**, **Authenti
 - Jumpcloud
 - Authentik
 - LDAP / OpenLDAP / Active Directory** (tested with Jumpcloud LDAP)
+- Keycloak
 
 Planned:
 - Auth0
@@ -59,18 +60,27 @@ headscale-pf [command] [flags]
 - `completion` – generate autocomplete script for your shell
 - `help` – show help for any command
 
+### Sources
+- `jc`, `jumpcloud` - Jumpcloud
+- `ak`, `authentik` - Authentik
+- `ldap`, `ldaps` - LDAP
+- `kk`, `keycloak` - Keycloak
+
 ### Global Flags
-- `--source string` → source type (`jc`, `ak`, `ldap`) (`PF_SOURCE`)
-- `--endpoint string` → source endpoint (`PF_ENDPOINT`)
-- `--token string` → API token (`PF_TOKEN`)
-- `--input-policy string` → input policy template (default: `./policy.hjson`)
-- `--output-policy string` → output policy file (default: `./current.json`)
-- `--ldap-base-dn string` → LDAP base DN (`PF_LDAP_BASE_DN`)
-- `--ldap-bind-dn string` → LDAP bind DN (`PF_LDAP_BIND_DN`)
-- `--ldap-bind-password string` → LDAP password (`PF_LDAP_BIND_PASSWORD`)
-- `--ldap-default-email-domain string` → LDAP default email domain (`PF_LDAP_DEFAULT_USER_EMAIL_DOMAIN`)
-- `--no-color` → disable colored output
-- `-v, --version` → show version
+| Flag / Option                  | Description                                         | Env var                              | Default            |
+|--------------------------------|-----------------------------------------------------|--------------------------------------|--------------------|
+| `--source string`              | Source type (`jc`, `ak`, `ldap`, `kk`)              | `PF_SOURCE`                          | –                  |
+| `--endpoint string`            | Source endpoint                                     | `PF_ENDPOINT`                        | –                  |
+| `--token string`               | API token                                           | `PF_TOKEN`                           | –                  |
+| `--input-policy string`        | Input policy template                               | –                                    | `./policy.hjson`   |
+| `--output-policy string`       | Output policy file                                  | –                                    | `./current.json`   |
+| `--ldap-base-dn string`        | LDAP base DN                                        | `PF_LDAP_BASE_DN`                    | –                  |
+| `--ldap-bind-dn string`        | LDAP bind DN                                        | `PF_LDAP_BIND_DN`                    | –                  |
+| `--ldap-bind-password string`  | LDAP password                                       | `PF_LDAP_BIND_PASSWORD`              | –                  |
+| `--ldap-default-email-domain`  | LDAP default email domain                           | `PF_LDAP_DEFAULT_USER_EMAIL_DOMAIN`  | –                  |
+| `--keycloak-realm string`      | Keycloak Realm                                      | `PF_KEYCLOAK_REALM`                  | –                  |
+| `--no-color`                   | Disable colored output                              | –                                    | –                  |
+| `-v`, `--version`              | Show version                                        | –                                    | –                  |
 
 ---
 
@@ -111,6 +121,32 @@ headscale-pf prepare \
             --input-policy=policy.hjson \
             --output-policy=out.json
 
+headscale policy set -f out.json
+```
+
+
+### Keycloak
+```bash
+# Get API Token
+# Replace the url/username/password with your own.
+AK_TOKEN=$(curl -X POST \
+  --url http://auth.example.com/realms/master/protocol/openid-connect/token \
+  --header 'content-type: application/x-www-form-urlencoded' \
+  --data client_id=admin-cli \
+  --data grant_type=password \
+  --data username=admin \
+  --data password=admin | jq -r '.access_token')
+
+# Prepare policy
+headscale-pf prepare \
+            --source=kk \
+            --endpoint="https://auth.example.com" \
+            --token=$AK_TOKEN \
+            --keycloak-realm="master" \
+            --input-policy=policy.hjson \
+            --output-policy=out.json
+
+# Apply policy
 headscale policy set -f out.json
 ```
 
