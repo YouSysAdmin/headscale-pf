@@ -124,6 +124,32 @@ headscale-pf prepare \
 headscale policy set -f out.json
 ```
 
+
+### Keycloak
+```bash
+# Get API Token
+# Replace the url/username/password with your own.
+AK_TOKEN=$(curl -X POST \
+  --url http://auth.example.com/realms/master/protocol/openid-connect/token \
+  --header 'content-type: application/x-www-form-urlencoded' \
+  --data client_id=admin-cli \
+  --data grant_type=password \
+  --data username=admin \
+  --data password=admin | jq -r '.access_token')
+
+# Prepare policy
+headscale-pf prepare \
+            --source=kk \
+            --endpoint="https://auth.example.com" \
+            --token=$AK_TOKEN \
+            --keycloak-realm="master" \
+            --input-policy=policy.hjson \
+            --output-policy=out.json
+
+# Apply policy
+headscale policy set -f out.json
+```
+
 ---
 
 ## Adding a New Source

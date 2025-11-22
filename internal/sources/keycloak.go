@@ -58,7 +58,7 @@ func (kc Keycloak) GetGroupByName(name string) (*models.Group, error) {
 }
 
 // GetGroupMembers gets ALL Keycloak group members (handles pagination)
-func (kc Keycloak) GetGroupMembers(groupID string, stripEmailDomain bool) ([]models.User, error) {
+func (kc Keycloak) GetGroupMembers(groupID string) ([]models.User, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
 
@@ -78,7 +78,7 @@ func (kc Keycloak) GetGroupMembers(groupID string, stripEmailDomain bool) ([]mod
 		}
 
 		for _, u := range users {
-			mu := toModelUser(u, stripEmailDomain)
+			mu := toModelUser(u)
 			if _, ok := seen[mu.ID]; ok {
 				continue
 			}
@@ -98,7 +98,7 @@ func (kc Keycloak) GetGroupMembers(groupID string, stripEmailDomain bool) ([]mod
 }
 
 // GetUserInfo get Keycloak user info [UNUSED]
-func (kc Keycloak) GetUserInfo(userID string, stripEmailDomain bool) (models.User, error) {
+func (kc Keycloak) GetUserInfo(userID string) (models.User, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -106,7 +106,7 @@ func (kc Keycloak) GetUserInfo(userID string, stripEmailDomain bool) (models.Use
 	if err != nil {
 		return models.User{}, err
 	}
-	return toModelUser(u, stripEmailDomain), nil
+	return toModelUser(u), nil
 }
 
 // pagination
@@ -140,19 +140,17 @@ func (kc *Keycloak) fetchGroupMembersPage(ctx context.Context, groupID string, f
 }
 
 // Mapping keycloak user to models.User{}
-func toModelUser(u *gocloak.User, stripEmailDomain bool) models.User {
-	email := gocloak.PString(u.Email)
-
-	var userName string
-	if stripEmailDomain {
-		userName = strings.Split(email, "@")[0] + "@"
-	} else {
-		userName = email
+func toModelUser(u *gocloak.User) models.User {
+	userID := gocloak.PString(u.ID)
+	userEmail := gocloak.PString(u.Email)
+	userName := gocloak.PString(u.Username)
+	if !strings.Contains(userName, "@") {
+		userName += "@"
 	}
 
 	return models.User{
-		ID:    gocloak.PString(u.ID),
-		Email: email,
-		Part:  userName,
+		ID:       userID,
+		Email:    userEmail,
+		Username: userName,
 	}
 }
