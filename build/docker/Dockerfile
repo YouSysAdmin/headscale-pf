@@ -1,4 +1,5 @@
-ARG HEADSCALE_VERSION=latest
+ARG HEADSCALE_VERSION="0.27.1"
+# latest
 FROM ghcr.io/juanfont/headscale:${HEADSCALE_VERSION} AS headscale-src
 
 FROM alpine:3.20

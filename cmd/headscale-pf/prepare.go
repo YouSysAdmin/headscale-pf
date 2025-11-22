@@ -36,7 +36,7 @@ func preparePolicy(client sources.Source, logCh chan<- string) error {
 
 		// If a group is found in source, try to get a members
 		if group != nil {
-			users, err := client.GetGroupMembers(group.ID, stripEmailDomain)
+			users, err := client.GetGroupMembers(group.ID)
 			if err != nil {
 				return err
 			}
@@ -55,7 +55,7 @@ func preparePolicy(client sources.Source, logCh chan<- string) error {
 	for _, g := range groupsInfo {
 		var upg []string
 		for _, u := range g.Users {
-			upg = append(upg, u.Part)
+			upg = append(upg, u.Username)
 		}
 
 		// Add the prefix 'group' to a group name

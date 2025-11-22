@@ -23,9 +23,8 @@ var (
 	ldapDefaultEmailDomain string
 	keycloakRealm          string
 
-	logger           *pterm.Logger
-	noColor          bool
-	stripEmailDomain bool
+	logger  *pterm.Logger
+	noColor bool
 
 	cliCmd = &cobra.Command{
 		Use:     "headscale-pf",
@@ -40,7 +39,6 @@ func init() {
 	cliCmd.PersistentFlags().StringVar(&inputPolicyFile, "input-policy", "./policy.hjson", "Headscale policy file template")
 	cliCmd.PersistentFlags().StringVar(&outputPolicyFile, "output-policy", "./current.json", "Headscale prepared policy file")
 	cliCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable color output")
-	cliCmd.PersistentFlags().BoolVar(&stripEmailDomain, "strip-email-domain", true, "Strip e-mail domain")
 
 	cliCmd.PersistentFlags().StringVar(&source, "source", os.Getenv("PF_SOURCE"), "Source (can use env var PF_SOURCE)")
 	cliCmd.PersistentFlags().StringVar(&endpoint, "endpoint", os.Getenv("PF_ENDPOINT"), "Source endpoint (can use env var PF_ENDPOINT)")

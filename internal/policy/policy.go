@@ -62,6 +62,8 @@ func (p *Policy) ReadPolicyFromFile(path string) error {
 
 // WritePolicyToFile write Headscale policy from file
 func (p *Policy) WritePolicyToFile(path string) error {
+	p.sanitize()
+
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
@@ -94,4 +96,17 @@ func (p *Policy) GetGroupNames() []string {
 	}
 
 	return groups
+}
+
+// sanitize prevents set `null` as value for empty groups and ssh
+// `group:"example": null` -> `group:"example": []`
+func (p *Policy) sanitize() {
+	if p.SSHs == nil {
+		p.SSHs = []SSH{}
+	}
+	for k, v := range p.Groups {
+		if v == nil {
+			p.Groups[k] = []string{}
+		}
+	}
 }
