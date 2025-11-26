@@ -2,8 +2,9 @@
 
 [![Stand with Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner2-direct.svg)](https://github.com/vshymanskyy/StandWithUkraine/blob/main/docs/README.md)
 
-`headscale-pf` is a CLI tool for managing user groups in a [**Headscale**](https://github.com/juanfont/headscale) policy file.  
-It integrates with external identity providers such as **Jumpcloud**, **Authentik**, and **LDAP** to automatically build or update Headscale ACL policies.
+`headscale-pf` is a command-line tool and Docker container that automates the generation and management of Headscale Access Control List (ACL) policy files. It synchronizes user group memberships from external identity providers into Headscale policy definitions, eliminating the need to manually maintain user lists in policy files.
+
+The tool reads a policy template file (in HJSON format), queries one or more identity providers for group membership information, merges that data into the template, and outputs a complete policy file (in JSON format) that can be applied to a Headscale server.
 
 ---
 
