@@ -1,6 +1,6 @@
 module github.com/yousysadmin/headscale-pf
 
-go 1.25.1
+go 1.25.5
 
 require (
 	github.com/Nerzal/gocloak/v13 v13.9.0
