@@ -77,13 +77,18 @@ var prepare = &cobra.Command{
 	Aliases: []string{"p"},
 	Run: func(cmd *cobra.Command, args []string) {
 		// Make logger channel and start output
-		logCh := make(chan string)
-		defer close(logCh)
+		logCh := make(chan string, 100)
+		done := make(chan struct{})
 
 		go func() {
 			for ls := range logCh {
 				logger.Info(ls)
 			}
+			close(done)
+		}()
+		defer func() {
+			close(logCh)
+			<-done
 		}()
 
 		// Make a new client
