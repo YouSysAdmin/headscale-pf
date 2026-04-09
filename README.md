@@ -52,6 +52,11 @@ Options:
 - `-d` → enable debug logging
 - `[tag]` → optional release tag (latest if omitted)
 
+### Brew
+```
+brew install yousysadmin/apps/headscale-pf
+```
+
 ---
 
 ## Usage

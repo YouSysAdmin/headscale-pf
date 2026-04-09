@@ -77,6 +77,15 @@ changelog:
       - "^docs:"
       - "^test:"
 
+brews:
+  - repository:
+      owner: YouSysAdmin
+      name: homebrew-apps
+    directory: Formula
+    homepage: https://github.com/yousysadmin/headscale-pf
+    description: Obtaining information about groups and group members from external sources and populating groups in the Headscale policy
+    license: MIT
+
 nfpms:
   - file_name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}'
     maintainer: Oleksii YouSysAdmin
