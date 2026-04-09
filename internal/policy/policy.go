@@ -82,6 +82,9 @@ func (p *Policy) WritePolicyToFile(path string) error {
 
 // AppendGroups append group to policy
 func (p *Policy) AppendGroups(groups map[string][]string) {
+	if p.Groups == nil {
+		p.Groups = make(map[string][]string)
+	}
 	for g, u := range groups {
 		p.Groups[g] = u
 	}
@@ -90,9 +93,12 @@ func (p *Policy) AppendGroups(groups map[string][]string) {
 // GetGroupNames get group names from policy file
 func (p *Policy) GetGroupNames() []string {
 	var groups []string
-	for k, _ := range p.Groups {
-		group := strings.Split(k, ":")[1]
-		groups = append(groups, group)
+	for k := range p.Groups {
+		parts := strings.Split(k, ":")
+		if len(parts) >= 2 {
+			group := parts[1]
+			groups = append(groups, group)
+		}
 	}
 
 	return groups
