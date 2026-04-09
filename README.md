@@ -17,6 +17,10 @@ The tool reads a policy template file (in HJSON format), queries one or more ide
 
 ## Supported Sources
 
+**IMPORTANT:** This utility was developed for our own use and exclusively for use with Jumpcloud. Other sources were added at the request of the community.
+
+If you have a problem, please create an issue.
+
 - Jumpcloud
 - Authentik
 - LDAP / OpenLDAP / Active Directory** (tested with Jumpcloud LDAP)
