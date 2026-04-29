@@ -163,10 +163,11 @@ func TestReadRealPolicyHJSON_ParsesAllSections(t *testing.T) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("unmarshal output: %v", err)
 	}
-	// $schema is in the real template — must round-trip per the tool's
-	// "fill groups, copy everything else" contract.
-	if _, ok := decoded["$schema"]; !ok {
-		t.Errorf("real policy.hjson round-trip dropped $schema; output: %s", raw[:min(200, len(raw))])
+	// $schema is template-only editor metadata (JSON Schema reference for
+	// IDE validation of the HJSON). It must NOT leak into the JSON output —
+	// Headscale doesn't recognize it.
+	if _, present := decoded["$schema"]; present {
+		t.Errorf("real policy.hjson round-trip leaked $schema into output: %s", raw[:min(200, len(raw))])
 	}
 }
 
@@ -296,10 +297,11 @@ func TestStaticGroupPreservedWhenSourceMisses(t *testing.T) {
 	}
 }
 
-// TestSchemaFieldPreserved enforces the tool's contract: only group user
-// lists are mutated. The $schema reference must round-trip from input to
-// output unchanged.
-func TestSchemaFieldPreserved(t *testing.T) {
+// TestSchemaFieldStripped enforces that $schema — which exists only for
+// editor JSON-schema validation of the HJSON template — is removed on
+// output. Headscale doesn't recognize $schema; leaking it into the policy
+// file is wrong even though "everything else passes through".
+func TestSchemaFieldStripped(t *testing.T) {
 	in := writeTemp(t, "in.hjson", `{
   "$schema": "./schemas/tailscale-acl.json-schema.json",
   "groups": { "group:ops": ["ops@"] }
@@ -319,22 +321,16 @@ func TestSchemaFieldPreserved(t *testing.T) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("unmarshal output: %v", err)
 	}
-	got, ok := decoded["$schema"].(string)
-	if !ok {
-		t.Fatalf("$schema missing from output: %s", raw)
-	}
-	if want := "./schemas/tailscale-acl.json-schema.json"; got != want {
-		t.Errorf("$schema mutated: got %q want %q", got, want)
+	if _, present := decoded["$schema"]; present {
+		t.Errorf("$schema must be dropped on output (template-only metadata); got %s", raw)
 	}
 }
 
 // TestUnknownTopLevelFieldsPreserved guards future Headscale policy fields
 // not yet modeled in the Policy struct: they must still pass through.
-// "all other policy [is] copied to result as-is" — only group user lists
-// are tool-managed.
+// $schema is the documented exception — see TestSchemaFieldStripped.
 func TestUnknownTopLevelFieldsPreserved(t *testing.T) {
 	in := writeTemp(t, "in.hjson", `{
-  "$schema":             "x",
   "randomizeClientPort": true,
   "nodeAttrs": [
     { "target": ["*"], "attr": ["funnel"] },
@@ -357,9 +353,6 @@ func TestUnknownTopLevelFieldsPreserved(t *testing.T) {
 	var decoded map[string]any
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
-	}
-	if decoded["$schema"] != "x" {
-		t.Errorf("$schema lost: %v", decoded["$schema"])
 	}
 	if decoded["randomizeClientPort"] != true {
 		t.Errorf("randomizeClientPort lost: %v", decoded["randomizeClientPort"])

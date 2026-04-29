@@ -39,6 +39,13 @@ var knownTopLevelKeys = map[string]struct{}{
 	"ssh":           {},
 }
 
+// templateOnlyKeys are top-level keys that exist in the HJSON template for
+// editor/IDE tooling but are not part of the Headscale policy. They are
+// dropped on read so they never appear in the JSON output.
+var templateOnlyKeys = map[string]struct{}{
+	"$schema": {},
+}
+
 // UnmarshalJSON populates typed fields and captures everything else into
 // extra so unknown fields round-trip through WritePolicyToFile.
 func (p *Policy) UnmarshalJSON(data []byte) error {
@@ -53,6 +60,9 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 	extra := make(map[string]json.RawMessage)
 	for k, v := range raw {
 		if _, known := knownTopLevelKeys[strings.ToLower(k)]; known {
+			continue
+		}
+		if _, drop := templateOnlyKeys[k]; drop {
 			continue
 		}
 		extra[k] = v

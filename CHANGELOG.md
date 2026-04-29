@@ -18,7 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Authentik**: nil-pointer crash when a user had no email; endpoint port was silently stripped (e.g. `:9000` rerouted to `:443`); bearer token was skipped on non-HTTPS endpoints; shared-state hack across `GetGroupByName` / `GetGroupMembers` calls removed.
 - **LDAP**: `objectClass` matching no longer false-positives on substrings (e.g. `posixGroupExtended` was matching `posixGroup`); empty-result errors no longer render as `<nil>`.
 - **JumpCloud**: paginated members are deduplicated across page boundaries.
-- **Policy**: top-level fields not yet modeled in the `Policy` struct (e.g. `$schema`, future Headscale fields) are preserved on round-trip instead of being silently dropped.
+- **Policy**: unknown top-level Headscale fields (e.g. `randomizeClientPort`, `nodeAttrs`, future fields not yet typed in the `Policy` struct) are preserved on round-trip instead of being silently dropped.
+- **Policy**: `$schema` (editor JSON-schema reference for the HJSON template) is no longer leaked into the JSON output — Headscale doesn't recognize it.
 - **Policy**: `WritePolicyToFile` no longer swallows `json.Marshal` errors.
 - **CLI**: `--no-color` now actually disables color (it was evaluated before flag parsing).
 
