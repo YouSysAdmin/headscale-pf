@@ -199,9 +199,10 @@ func TestPreparePolicy_EndToEnd(t *testing.T) {
 		t.Errorf("ssh should be empty array, got nil")
 	}
 
-	// $schema is dropped (current behavior — change with care)
-	if got.Schema != nil {
-		t.Errorf("$schema should be dropped; if preserving is intended, update Policy and tests")
+	// $schema must round-trip — the tool's contract is to mutate group
+	// user lists only; everything else is copied as-is.
+	if got.Schema != "./schemas/tailscale-acl.json-schema.json" {
+		t.Errorf("$schema must round-trip from template, got %v", got.Schema)
 	}
 }
 

@@ -151,6 +151,23 @@ func TestReadRealPolicyHJSON_ParsesAllSections(t *testing.T) {
 	if len(p.AutoApprovers.Routes) == 0 || len(p.AutoApprovers.ExitNode) == 0 {
 		t.Errorf("expected real policy to define autoApprovers")
 	}
+
+	// Round-trip: write the real policy back out and confirm everything
+	// non-group survives. This is the production guarantee.
+	out := filepath.Join(t.TempDir(), "out.json")
+	if err := p.WritePolicyToFile(out); err != nil {
+		t.Fatalf("write real policy: %v", err)
+	}
+	raw, _ := os.ReadFile(out)
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	// $schema is in the real template — must round-trip per the tool's
+	// "fill groups, copy everything else" contract.
+	if _, ok := decoded["$schema"]; !ok {
+		t.Errorf("real policy.hjson round-trip dropped $schema; output: %s", raw[:min(200, len(raw))])
+	}
 }
 
 // TestHostsCaseInsensitive_EmitsLowercase confirms that "Hosts" (capital H,
@@ -279,11 +296,10 @@ func TestStaticGroupPreservedWhenSourceMisses(t *testing.T) {
 	}
 }
 
-// TestSchemaFieldIsDropped documents (and pins) the current behavior:
-// the $schema reference present in policy.hjson is not preserved in
-// output. Flips to a failure if someone adds the field without test
-// updates, prompting an explicit decision.
-func TestSchemaFieldIsDropped(t *testing.T) {
+// TestSchemaFieldPreserved enforces the tool's contract: only group user
+// lists are mutated. The $schema reference must round-trip from input to
+// output unchanged.
+func TestSchemaFieldPreserved(t *testing.T) {
 	in := writeTemp(t, "in.hjson", `{
   "$schema": "./schemas/tailscale-acl.json-schema.json",
   "groups": { "group:ops": ["ops@"] }
@@ -297,9 +313,62 @@ func TestSchemaFieldIsDropped(t *testing.T) {
 	if err := p.WritePolicyToFile(out); err != nil {
 		t.Fatalf("write: %v", err)
 	}
+
 	raw, _ := os.ReadFile(out)
-	if strings.Contains(string(raw), "$schema") {
-		t.Errorf("output unexpectedly preserves $schema; if intentional, update Policy struct and this test")
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	got, ok := decoded["$schema"].(string)
+	if !ok {
+		t.Fatalf("$schema missing from output: %s", raw)
+	}
+	if want := "./schemas/tailscale-acl.json-schema.json"; got != want {
+		t.Errorf("$schema mutated: got %q want %q", got, want)
+	}
+}
+
+// TestUnknownTopLevelFieldsPreserved guards future Headscale policy fields
+// not yet modeled in the Policy struct: they must still pass through.
+// "all other policy [is] copied to result as-is" — only group user lists
+// are tool-managed.
+func TestUnknownTopLevelFieldsPreserved(t *testing.T) {
+	in := writeTemp(t, "in.hjson", `{
+  "$schema":             "x",
+  "randomizeClientPort": true,
+  "nodeAttrs": [
+    { "target": ["*"], "attr": ["funnel"] },
+  ],
+  "groups": { "group:ops": ["ops@"] }
+}`)
+	out := filepath.Join(t.TempDir(), "out.json")
+
+	p := Policy{}
+	if err := p.ReadPolicyFromFile(in); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	// Tool would mutate groups here; round-trip should keep the rest intact.
+	p.AppendGroups(map[string][]string{"group:ops": {"alice@"}})
+	if err := p.WritePolicyToFile(out); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	raw, _ := os.ReadFile(out)
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded["$schema"] != "x" {
+		t.Errorf("$schema lost: %v", decoded["$schema"])
+	}
+	if decoded["randomizeClientPort"] != true {
+		t.Errorf("randomizeClientPort lost: %v", decoded["randomizeClientPort"])
+	}
+	if _, ok := decoded["nodeAttrs"]; !ok {
+		t.Errorf("nodeAttrs lost from %s", raw)
+	}
+	if got := decoded["groups"].(map[string]any)["group:ops"].([]any); len(got) != 1 || got[0] != "alice@" {
+		t.Errorf("group:ops should reflect AppendGroups, got %v", got)
 	}
 }
 

@@ -9,7 +9,11 @@ import (
 	"github.com/tailscale/hujson"
 )
 
-// Policy extend Headscale policy
+// Policy extend Headscale policy. Known fields are typed so the tool can
+// reason about them; any additional top-level field present in the input
+// (e.g. "$schema", or new Headscale fields not yet modeled here) is captured
+// verbatim in extra and re-emitted unchanged. The tool's contract is to fill
+// group users — everything else round-trips as-is.
 type Policy struct {
 	Groups        map[string][]string     `json:"groups"`
 	Hosts         map[string]netip.Prefix `json:"hosts"`
@@ -17,6 +21,67 @@ type Policy struct {
 	ACLs          []ACL                   `json:"acls"`
 	AutoApprovers AutoApprovers           `json:"autoApprovers"`
 	SSHs          []SSH                   `json:"ssh"`
+
+	// extra holds top-level keys that aren't represented above, so that
+	// ReadPolicyFromFile + WritePolicyToFile preserve them.
+	extra map[string]json.RawMessage
+}
+
+// knownTopLevelKeys lists JSON keys (lower-cased) covered by typed fields.
+// Anything outside this set goes into Policy.extra. Encoding/json matches
+// keys case-insensitively on unmarshal, so we lower-case here too.
+var knownTopLevelKeys = map[string]struct{}{
+	"groups":        {},
+	"hosts":         {},
+	"tagowners":     {},
+	"acls":          {},
+	"autoapprovers": {},
+	"ssh":           {},
+}
+
+// UnmarshalJSON populates typed fields and captures everything else into
+// extra so unknown fields round-trip through WritePolicyToFile.
+func (p *Policy) UnmarshalJSON(data []byte) error {
+	type alias Policy
+	if err := json.Unmarshal(data, (*alias)(p)); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	extra := make(map[string]json.RawMessage)
+	for k, v := range raw {
+		if _, known := knownTopLevelKeys[strings.ToLower(k)]; known {
+			continue
+		}
+		extra[k] = v
+	}
+	if len(extra) > 0 {
+		p.extra = extra
+	}
+	return nil
+}
+
+// MarshalJSON merges the typed fields with extra so that unknown top-level
+// keys captured during UnmarshalJSON are emitted alongside the known ones.
+func (p *Policy) MarshalJSON() ([]byte, error) {
+	type alias Policy
+	known, err := json.Marshal((*alias)(p))
+	if err != nil {
+		return nil, err
+	}
+	if len(p.extra) == 0 {
+		return known, nil
+	}
+	merged := make(map[string]json.RawMessage, len(p.extra)+8)
+	if err := json.Unmarshal(known, &merged); err != nil {
+		return nil, err
+	}
+	for k, v := range p.extra {
+		merged[k] = v
+	}
+	return json.Marshal(merged)
 }
 
 type ACL struct {
