@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -117,6 +118,188 @@ func TestWritePolicyToFile_NilGroupSerializesAsEmptyArray(t *testing.T) {
 	}
 	if _, isArray := groups["group:empty"].([]any); !isArray {
 		t.Errorf("group:empty should serialize as [], got %#v", groups["group:empty"])
+	}
+}
+
+// TestReadRealPolicyHJSON_ParsesAllSections loads the real policy.hjson
+// shipped at the repo root. It catches regressions in HJSON dialect
+// support (comments, trailing commas) and in the Policy struct shape
+// drifting away from the production template format.
+func TestReadRealPolicyHJSON_ParsesAllSections(t *testing.T) {
+	repoRoot := filepath.Join("..", "..")
+	src := filepath.Join(repoRoot, "policy.hjson")
+	if _, err := os.Stat(src); err != nil {
+		t.Skipf("policy.hjson not available: %v", err)
+	}
+
+	p := Policy{}
+	if err := p.ReadPolicyFromFile(src); err != nil {
+		t.Fatalf("real policy.hjson failed to parse: %v", err)
+	}
+	if len(p.Groups) < 30 {
+		t.Errorf("expected real policy to define many groups, got %d", len(p.Groups))
+	}
+	if len(p.Hosts) < 30 {
+		t.Errorf("expected real policy to define many hosts, got %d", len(p.Hosts))
+	}
+	if len(p.TagOwners) == 0 {
+		t.Errorf("expected real policy to define tagOwners")
+	}
+	if len(p.ACLs) == 0 {
+		t.Errorf("expected real policy to define acls")
+	}
+	if len(p.AutoApprovers.Routes) == 0 || len(p.AutoApprovers.ExitNode) == 0 {
+		t.Errorf("expected real policy to define autoApprovers")
+	}
+}
+
+// TestHostsCaseInsensitive_EmitsLowercase confirms that "Hosts" (capital H,
+// as used in policy.hjson) loads into the Hosts field, and that on emit the
+// JSON tag forces lowercase "hosts" — matching what current.json shows.
+func TestHostsCaseInsensitive_EmitsLowercase(t *testing.T) {
+	in := writeTemp(t, "in.hjson", `{
+  "Hosts": { "vpc-a": "10.0.0.0/16" }
+}`)
+	p := Policy{}
+	if err := p.ReadPolicyFromFile(in); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got := p.Hosts["vpc-a"].String(); got != "10.0.0.0/16" {
+		t.Fatalf("Hosts[vpc-a] = %q, want 10.0.0.0/16", got)
+	}
+
+	out := filepath.Join(t.TempDir(), "out.json")
+	if err := p.WritePolicyToFile(out); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	raw, _ := os.ReadFile(out)
+	if !strings.Contains(string(raw), `"hosts":`) {
+		t.Errorf("output should emit lowercase hosts, got: %s", raw)
+	}
+	if strings.Contains(string(raw), `"Hosts":`) {
+		t.Errorf("output must not preserve capital Hosts, got: %s", raw)
+	}
+}
+
+// TestRoundTrip_PreservesHostsTagOwnersAutoApprovers verifies the structural
+// fields beyond Groups survive a load/save cycle. Mirrors the shape of
+// current.json so future struct changes can't silently drop sections.
+func TestRoundTrip_PreservesHostsTagOwnersAutoApprovers(t *testing.T) {
+	in := writeTemp(t, "in.hjson", `{
+  "groups": { "group:ops": ["ops@"] },
+  "Hosts": {
+    "app-ca-prod-vpc": "10.2.0.0/16",
+    "eks-ca-prod-vpc":       "10.18.0.0/16",
+  },
+  "tagOwners": {
+    "tag:prod-vpn": ["group:ops"],
+    "tag:bastion":  ["group:ops"],
+  },
+  "autoApprovers": {
+    "routes":  { "10.0.0.0/8": ["group:ops"] },
+    "exitNode": ["group:ops"],
+  },
+  "acls": [
+    {
+      "action": "accept",
+      "proto":  "tcp",
+      "src":    ["group:ops"],
+      "dst":    ["tag:bastion:22"],
+    },
+  ],
+}`)
+	out := filepath.Join(t.TempDir(), "out.json")
+
+	p := Policy{}
+	if err := p.ReadPolicyFromFile(in); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if err := p.WritePolicyToFile(out); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	q := Policy{}
+	if err := q.ReadPolicyFromFile(out); err != nil {
+		t.Fatalf("re-read: %v", err)
+	}
+
+	if got := q.Hosts["app-ca-prod-vpc"].String(); got != "10.2.0.0/16" {
+		t.Errorf("netip.Prefix lost on round-trip: %q", got)
+	}
+	if got, want := q.TagOwners["tag:prod-vpn"], []string{"group:ops"}; len(got) != 1 || got[0] != want[0] {
+		t.Errorf("tagOwners lost: %v", got)
+	}
+	if got := q.AutoApprovers.ExitNode; len(got) != 1 || got[0] != "group:ops" {
+		t.Errorf("autoApprovers.exitNode lost: %v", got)
+	}
+	if got := q.AutoApprovers.Routes["10.0.0.0/8"]; len(got) != 1 || got[0] != "group:ops" {
+		t.Errorf("autoApprovers.routes lost: %v", got)
+	}
+	if len(q.ACLs) != 1 {
+		t.Fatalf("ACLs lost: %v", q.ACLs)
+	}
+	got := q.ACLs[0]
+	if got.Action != "accept" || got.Protocol != "tcp" {
+		t.Errorf("ACL fields lost: %+v", got)
+	}
+	if len(got.Sources) != 1 || got.Sources[0] != "group:ops" {
+		t.Errorf("ACL src lost: %v", got.Sources)
+	}
+	if len(got.Destinations) != 1 || got.Destinations[0] != "tag:bastion:22" {
+		t.Errorf("ACL dst lost: %v", got.Destinations)
+	}
+}
+
+// TestStaticGroupPreservedWhenSourceMisses guards the contract behind
+// group:ops in current.json: groups not provided to AppendGroups keep
+// whatever the HJSON template specified.
+func TestStaticGroupPreservedWhenSourceMisses(t *testing.T) {
+	in := writeTemp(t, "in.hjson", `{
+  "groups": {
+    "group:ops":         ["ops@"],
+    "group:network-all": ["alice@"],
+  }
+}`)
+	p := Policy{}
+	if err := p.ReadPolicyFromFile(in); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	// Simulate prepare.go: only network-all came back from the source,
+	// ops was not found and is therefore not in the AppendGroups input.
+	p.AppendGroups(map[string][]string{
+		"group:network-all": {"alice@", "bob@"},
+	})
+
+	if got := p.Groups["group:ops"]; len(got) != 1 || got[0] != "ops@" {
+		t.Errorf("static group:ops dropped when source missed it: %v", got)
+	}
+	if got := p.Groups["group:network-all"]; len(got) != 2 {
+		t.Errorf("dynamic group:network-all not overwritten: %v", got)
+	}
+}
+
+// TestSchemaFieldIsDropped documents (and pins) the current behavior:
+// the $schema reference present in policy.hjson is not preserved in
+// output. Flips to a failure if someone adds the field without test
+// updates, prompting an explicit decision.
+func TestSchemaFieldIsDropped(t *testing.T) {
+	in := writeTemp(t, "in.hjson", `{
+  "$schema": "./schemas/tailscale-acl.json-schema.json",
+  "groups": { "group:ops": ["ops@"] }
+}`)
+	out := filepath.Join(t.TempDir(), "out.json")
+
+	p := Policy{}
+	if err := p.ReadPolicyFromFile(in); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if err := p.WritePolicyToFile(out); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	raw, _ := os.ReadFile(out)
+	if strings.Contains(string(raw), "$schema") {
+		t.Errorf("output unexpectedly preserves $schema; if intentional, update Policy struct and this test")
 	}
 }
 
