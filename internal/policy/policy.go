@@ -6,11 +6,8 @@ import (
 	"os"
 	"strings"
 
-	v2Policy "github.com/juanfont/headscale/hscontrol/policy/v2"
 	"github.com/tailscale/hujson"
 )
-
-var f v2Policy.Policy
 
 // Policy extend Headscale policy
 type Policy struct {
