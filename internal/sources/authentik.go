@@ -36,14 +36,17 @@ func NewAuthentikClient(config SourceConfig) (Authentik, error) {
 	scheme := endpoint.Scheme
 	host := endpoint.Hostname()
 
+	transport, err := tools.GetTLSTransport(config.InsecureSkipTLSVerify)
+	if err != nil {
+		return Authentik{}, fmt.Errorf("authentik: build TLS transport: %w", err)
+	}
+
 	akConf := api.NewConfiguration()
 	akConf.Debug = false
 	akConf.Scheme = scheme
 	akConf.Host = host
-	akConf.HTTPClient = &http.Client{Transport: tools.GetTLSTransport(true)}
-	if scheme == "https" {
-		akConf.AddDefaultHeader("Authorization", fmt.Sprintf("Bearer %s", config.Token))
-	}
+	akConf.HTTPClient = &http.Client{Transport: transport}
+	akConf.AddDefaultHeader("Authorization", fmt.Sprintf("Bearer %s", config.Token))
 
 	c := Authentik{V3: api.NewAPIClient(akConf), group: &models.Group{}}
 

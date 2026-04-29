@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strconv"
 
 	"github.com/yousysadmin/headscale-pf/internal/sources"
 	"github.com/yousysadmin/headscale-pf/pkg"
@@ -17,6 +18,7 @@ var (
 	source                 string
 	endpoint               string
 	token                  string
+	insecureSkipTLSVerify  bool
 	ldapBindPassword       string
 	ldapBindDN             string
 	ldapBaseDN             string
@@ -43,6 +45,7 @@ func init() {
 	cliCmd.PersistentFlags().StringVar(&source, "source", os.Getenv("PF_SOURCE"), "Source (can use env var PF_SOURCE)")
 	cliCmd.PersistentFlags().StringVar(&endpoint, "endpoint", os.Getenv("PF_ENDPOINT"), "Source endpoint (can use env var PF_ENDPOINT)")
 	cliCmd.PersistentFlags().StringVar(&token, "token", os.Getenv("PF_TOKEN"), "A provider API token (can use env var PF_TOKEN)")
+	cliCmd.PersistentFlags().BoolVar(&insecureSkipTLSVerify, "insecure-skip-tls-verify", envBool("PF_INSECURE_SKIP_TLS_VERIFY"), "Skip TLS certificate verification for HTTPS/LDAPS/StartTLS (can use env var PF_INSECURE_SKIP_TLS_VERIFY)")
 
 	// Specific flags for the LDAP source
 	cliCmd.PersistentFlags().StringVar(&ldapBaseDN, "ldap-base-dn", os.Getenv("PF_LDAP_BASE_DN"), "Base DN to use for LDAP searches (can use env var PF_LDAP_BASE_DN)")
@@ -68,6 +71,19 @@ func init() {
 
 	// Add commands
 	cliCmd.AddCommand(prepare)
+}
+
+// envBool parses a bool from the named env var. Empty/unset returns false.
+func envBool(name string) bool {
+	v := os.Getenv(name)
+	if v == "" {
+		return false
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false
+	}
+	return b
 }
 
 // Prepare
@@ -96,6 +112,7 @@ var prepare = &cobra.Command{
 			Name:                   source,
 			Token:                  token,
 			Endpoint:               endpoint,
+			InsecureSkipTLSVerify:  insecureSkipTLSVerify,
 			LDAPBindPassword:       ldapBindPassword,
 			LDAPBindDN:             ldapBindDN,
 			LDAPBaseDN:             ldapBaseDN,
