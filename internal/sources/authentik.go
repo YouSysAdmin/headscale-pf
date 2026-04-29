@@ -15,95 +15,97 @@ import (
 
 // Authentik source
 type Authentik struct {
-	V3    *api.APIClient
-	group *models.Group
+	V3 *api.APIClient
 }
 
 // NewAuthentikClient init Authentik source
-func NewAuthentikClient(config SourceConfig) (Authentik, error) {
+func NewAuthentikClient(config SourceConfig) (*Authentik, error) {
 	if len(config.Token) <= 0 {
-		return Authentik{}, errors.New("token is required")
+		return nil, errors.New("token is required")
 	}
 	if len(config.Endpoint) <= 0 {
-		return Authentik{}, errors.New("endpoint is required")
+		return nil, errors.New("endpoint is required")
 	}
 
 	endpoint, err := url.Parse(config.Endpoint)
 	if err != nil {
-		return Authentik{}, err
+		return nil, err
 	}
-
-	scheme := endpoint.Scheme
-	host := endpoint.Hostname()
 
 	transport, err := tools.GetTLSTransport(config.InsecureSkipTLSVerify)
 	if err != nil {
-		return Authentik{}, fmt.Errorf("authentik: build TLS transport: %w", err)
+		return nil, fmt.Errorf("authentik: build TLS transport: %w", err)
 	}
 
 	akConf := api.NewConfiguration()
 	akConf.Debug = false
-	akConf.Scheme = scheme
-	akConf.Host = host
+	akConf.Scheme = endpoint.Scheme
+	akConf.Host = endpoint.Hostname()
 	akConf.HTTPClient = &http.Client{Transport: transport}
 	akConf.AddDefaultHeader("Authorization", fmt.Sprintf("Bearer %s", config.Token))
 
-	c := Authentik{V3: api.NewAPIClient(akConf), group: &models.Group{}}
-
-	return c, nil
+	return &Authentik{V3: api.NewAPIClient(akConf)}, nil
 }
 
-// GetGroupByName Get Authentik group by name
-func (c Authentik) GetGroupByName(grounName string) (*models.Group, error) {
+// GetGroupByName fetches the group and its members in a single API call.
+// The returned Group has Users populated (possibly empty but never nil) so
+// the caller can skip GetGroupMembers.
+func (c *Authentik) GetGroupByName(groupName string) (*models.Group, error) {
 	req, _, err := c.V3.CoreApi.CoreGroupsList(context.Background()).
-		Name(grounName).
+		Name(groupName).
 		IncludeUsers(true).
 		Execute()
 	if err != nil {
 		return nil, err
 	}
 
-	if len(req.Results) > 0 {
-		group := &models.Group{}
-		group.ID = req.Results[0].GetPk()
-		group.Name = req.Results[0].GetName()
-
-		for _, u := range req.Results[0].GetUsersObj() {
-			email := ""
-			if u.Email != nil {
-				email = *u.Email
-			}
-			group.Users = append(group.Users, models.User{ID: u.Uid, Email: email, Username: u.Username})
-		}
-
-		c.group.Users = group.Users
-
-		return group, nil
+	if len(req.Results) == 0 {
+		return nil, nil
 	}
 
-	return nil, nil
+	return toGroup(req.Results[0]), nil
 }
 
-// GetGroupMembers Get Authentik group members
-func (c Authentik) GetGroupMembers(groupId string) ([]models.User, error) {
-	if len(c.group.Users) > 0 {
-		var users []models.User
-		for _, u := range c.group.Users {
-			userName := u.Username
-			if !strings.Contains(userName, "@") {
-				userName += "@"
-			}
-			u.Username = userName
-
-			users = append(users, u)
-		}
-		return users, nil
+// GetGroupMembers re-fetches the group by PK and returns its members. Acts as
+// a fallback for callers that hold a groupID without the embedded users.
+func (c *Authentik) GetGroupMembers(groupID string) ([]models.User, error) {
+	g, _, err := c.V3.CoreApi.CoreGroupsRetrieve(context.Background(), groupID).
+		IncludeUsers(true).
+		Execute()
+	if err != nil {
+		return nil, err
 	}
-	return nil, nil
+	return toGroup(*g).Users, nil
 }
 
-// GetUserInfo get Authentik user info
-// For Authentik is not used because Authentik returns group members while getting group info
-func (c Authentik) GetUserInfo(userId string) (models.User, error) {
+// GetUserInfo is unused for Authentik because GetGroupByName returns members.
+func (c *Authentik) GetUserInfo(userID string) (models.User, error) {
 	return models.User{}, nil
+}
+
+// toGroup converts an Authentik Group response to models.Group with users
+// populated. Users is always non-nil (empty slice when group has no members)
+// so the caller can distinguish "preloaded but empty" from "not preloaded".
+func toGroup(g api.Group) *models.Group {
+	users := make([]models.User, 0, len(g.GetUsersObj()))
+	for _, u := range g.GetUsersObj() {
+		userName := u.Username
+		if !strings.Contains(userName, "@") {
+			userName += "@"
+		}
+		email := ""
+		if u.Email != nil {
+			email = *u.Email
+		}
+		users = append(users, models.User{
+			ID:       u.Uid,
+			Email:    email,
+			Username: userName,
+		})
+	}
+	return &models.Group{
+		ID:    g.GetPk(),
+		Name:  g.GetName(),
+		Users: users,
+	}
 }

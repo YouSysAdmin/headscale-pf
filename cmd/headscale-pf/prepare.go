@@ -36,15 +36,18 @@ func preparePolicy(client sources.Source, logCh chan<- string) error {
 
 		// If a group is found in source, try to get a members
 		if group != nil {
-			users, err := client.GetGroupMembers(group.ID)
-			if err != nil {
-				return err
+			// Sources may populate Users during GetGroupByName (one round-trip).
+			// A non-nil Users slice — even if empty — means "already loaded".
+			if group.Users == nil {
+				users, err := client.GetGroupMembers(group.ID)
+				if err != nil {
+					return err
+				}
+				group.Users = users
 			}
-
-			group.Users = users
 			groupsInfo = append(groupsInfo, group)
 
-			logCh <- fmt.Sprintf("Collect %d members for group: %s", len(users), g)
+			logCh <- fmt.Sprintf("Collect %d members for group: %s", len(group.Users), g)
 		} else {
 			logCh <- fmt.Sprintf("Group '%s' not foud", g)
 		}
