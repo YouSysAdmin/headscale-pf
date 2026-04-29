@@ -144,8 +144,11 @@ func (c *LDAP) GetGroupMembers(groupID string) ([]models.User, error) {
 		nil,
 	)
 	gsr, err := conn.Search(groupReq)
-	if err != nil || len(gsr.Entries) == 0 {
+	if err != nil {
 		return nil, fmt.Errorf("resolve group DN %q: %w", groupID, err)
+	}
+	if len(gsr.Entries) == 0 {
+		return nil, fmt.Errorf("group DN %q not found", groupID)
 	}
 	group := gsr.Entries[0]
 	oc := strings.ToLower(strings.Join(group.GetAttributeValues("objectClass"), " "))

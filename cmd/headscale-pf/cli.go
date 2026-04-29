@@ -58,16 +58,18 @@ func init() {
 	// Specifc flags for the Keycloak source
 	cliCmd.PersistentFlags().StringVar(&keycloakRealm, "keycloak-realm", os.Getenv("PF_KEYCLOAK_REALM"), "Keycloak Realm (can use env var PF_KEYCLOAK_REALM)")
 
-	// Disable colors if terminal doesn't support or user set flag --no-color
-	if !term_color.CheckTerminalColorSupport() || noColor {
-		pterm.DisableColor()
-	}
-
 	// Configure logger
 	logger = pterm.DefaultLogger.
 		WithLevel(pterm.LogLevelInfo).
 		WithMaxWidth(120).
 		WithTime(false)
+
+	// Disable colors after flags are parsed so --no-color takes effect.
+	cliCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		if !term_color.CheckTerminalColorSupport() || noColor {
+			pterm.DisableColor()
+		}
+	}
 
 	// Add commands
 	cliCmd.AddCommand(prepare)

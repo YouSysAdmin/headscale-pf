@@ -64,16 +64,18 @@ func (p *Policy) ReadPolicyFromFile(path string) error {
 func (p *Policy) WritePolicyToFile(path string) error {
 	p.sanitize()
 
+	data, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
-	data, err := json.Marshal(p)
-
-	_, err = f.Write(data)
-	if err != nil {
+	if _, err := f.Write(data); err != nil {
 		return err
 	}
 
