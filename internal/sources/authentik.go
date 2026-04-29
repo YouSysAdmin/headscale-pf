@@ -69,7 +69,11 @@ func (c Authentik) GetGroupByName(grounName string) (*models.Group, error) {
 		group.Name = req.Results[0].GetName()
 
 		for _, u := range req.Results[0].GetUsersObj() {
-			group.Users = append(group.Users, models.User{ID: u.Uid, Email: *u.Email, Username: u.Username})
+			email := ""
+			if u.Email != nil {
+				email = *u.Email
+			}
+			group.Users = append(group.Users, models.User{ID: u.Uid, Email: email, Username: u.Username})
 		}
 
 		c.group.Users = group.Users
