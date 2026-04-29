@@ -88,7 +88,7 @@ func (kc *Keycloak) GetGroupMembers(groupID string) ([]models.User, error) {
 
 		first += len(users)
 		// if len of user list < pageSize that is the last page
-		// break paginatin
+		// break pagination
 		if len(users) < pageSize {
 			break
 		}

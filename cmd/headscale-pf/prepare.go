@@ -49,7 +49,7 @@ func preparePolicy(client sources.Source, logCh chan<- string) error {
 
 			logCh <- fmt.Sprintf("Collect %d members for group: %s", len(group.Users), g)
 		} else {
-			logCh <- fmt.Sprintf("Group '%s' not foud", g)
+			logCh <- fmt.Sprintf("Group '%s' not found", g)
 		}
 	}
 
