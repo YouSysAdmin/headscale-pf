@@ -18,7 +18,9 @@ import (
 //   - posixGroup via "memberUid" (login name / uid-valued)
 type LDAP struct {
 	Addr     string // "host:389" or "host:636"
-	UseTLS   bool   // true for LDAPS on 636 (preferred). If false, StartTLS is attempted.
+	Host     string // hostname only, used as TLS ServerName
+	UseTLS   bool   // true for LDAPS on 636 (preferred). If false, StartTLS is required.
+	Insecure bool   // skip TLS certificate verification (LDAPS and StartTLS)
 	BindDN   string
 	BindPass string
 	BaseDN   string
@@ -57,9 +59,16 @@ func NewLDAPClient(config SourceConfig) (*LDAP, error) {
 		config.LDAPDefaultEmailDomain = "example.com"
 	}
 
+	host := config.Endpoint
+	if i := strings.LastIndex(host, ":"); i >= 0 {
+		host = host[:i]
+	}
+
 	return &LDAP{
 		Addr:     config.Endpoint,
+		Host:     host,
 		UseTLS:   strings.HasSuffix(strings.ToLower(config.Endpoint), ":636"),
+		Insecure: config.InsecureSkipTLSVerify,
 		BindDN:   config.LDAPBindDN,
 		BaseDN:   config.LDAPBaseDN,
 		BindPass: config.LDAPBindPassword,
@@ -230,20 +239,32 @@ func (c *LDAP) GetUserInfo(userID string) (models.User, error) {
 }
 
 // connect dials the LDAP server and performs a simple bind.
-// If UseTLS is false, it attempts StartTLS (best-effort).
+// LDAPS (UseTLS) wraps the connection in TLS up front. Otherwise StartTLS is
+// required before bind so credentials never travel over plaintext; if StartTLS
+// fails the connection is aborted.
 func (c *LDAP) connect() (*ldap.Conn, error) {
+	tlsConf := &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		ServerName:         c.Host,
+		InsecureSkipVerify: c.Insecure,
+	}
+
 	var conn *ldap.Conn
 	var err error
 	if c.UseTLS {
-		conn, err = ldap.DialTLS("tcp", c.Addr, &tls.Config{MinVersion: tls.VersionTLS12})
+		conn, err = ldap.DialTLS("tcp", c.Addr, tlsConf)
+		if err != nil {
+			return nil, fmt.Errorf("ldap dial tls: %w", err)
+		}
 	} else {
 		conn, err = ldap.Dial("tcp", c.Addr)
-		if err == nil {
-			_ = conn.StartTLS(&tls.Config{InsecureSkipVerify: true})
+		if err != nil {
+			return nil, fmt.Errorf("ldap dial: %w", err)
 		}
-	}
-	if err != nil {
-		return nil, fmt.Errorf("ldap dial: %w", err)
+		if err := conn.StartTLS(tlsConf); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("ldap starttls: %w", err)
+		}
 	}
 	if err := conn.Bind(c.BindDN, c.BindPass); err != nil {
 		conn.Close()
