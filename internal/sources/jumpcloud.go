@@ -5,12 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/yousysadmin/headscale-pf/internal/models"
 
 	jcapiv1 "github.com/TheJumpCloud/jcapi-go/v1"
 	jcapiv2 "github.com/TheJumpCloud/jcapi-go/v2"
 )
+
+// jcUserFetchWorkers caps concurrent SystemusersGet calls. Tuned to be
+// well below JumpCloud's documented rate limit while still giving a
+// meaningful speedup over the previous serial implementation.
+const jcUserFetchWorkers = 8
 
 // Jumpcloud source
 type Jumpcloud struct {
@@ -65,19 +71,21 @@ func (c *Jumpcloud) GetGroupByName(groupName string) (*models.Group, error) {
 	return nil, nil
 }
 
-// GetGroupMembers gets ALL JumpCloud group members (handles pagination)
+// GetGroupMembers gets ALL JumpCloud group members (handles pagination).
+// The JumpCloud membership endpoint returns only user IDs, so each ID is
+// resolved via getUserInfo. Lookups run through a bounded worker pool to
+// avoid the N+1 latency of a serial loop while staying inside rate limits.
 func (c *Jumpcloud) GetGroupMembers(groupID string) ([]models.User, error) {
-	var users []models.User
-
 	const pageSize int32 = 100
 	skip := int32(0)
 	seen := make(map[string]struct{})
+	ids := make([]string, 0)
 
 	for {
 		opts := map[string]any{
 			"limit":  pageSize,
 			"skip":   skip,
-			"fields": []string{"id"}, // reduce payload, we need only IDs here
+			"fields": []string{"id"},
 		}
 
 		groupUsers, _, err := c.V2.UserGroupsApi.
@@ -85,7 +93,6 @@ func (c *Jumpcloud) GetGroupMembers(groupID string) ([]models.User, error) {
 		if err != nil {
 			return nil, err
 		}
-
 		if len(groupUsers) == 0 {
 			break
 		}
@@ -95,21 +102,51 @@ func (c *Jumpcloud) GetGroupMembers(groupID string) ([]models.User, error) {
 				continue
 			}
 			seen[u.Id] = struct{}{}
-
-			user, err := c.getUserInfo(u.Id)
-			if err != nil {
-				return nil, err
-			}
-			users = append(users, user)
+			ids = append(ids, u.Id)
 		}
 
 		if int32(len(groupUsers)) < pageSize {
 			break
 		}
-
 		skip += int32(len(groupUsers))
 	}
 
+	return c.fetchUsersConcurrent(ids)
+}
+
+// fetchUsersConcurrent resolves user IDs in parallel with a bounded worker
+// pool. The first error short-circuits and is returned to the caller.
+func (c *Jumpcloud) fetchUsersConcurrent(ids []string) ([]models.User, error) {
+	if len(ids) == 0 {
+		return []models.User{}, nil
+	}
+
+	users := make([]models.User, len(ids))
+	errs := make([]error, len(ids))
+
+	sem := make(chan struct{}, jcUserFetchWorkers)
+	var wg sync.WaitGroup
+	for i, id := range ids {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, id string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			u, err := c.getUserInfo(id)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			users[i] = u
+		}(i, id)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
 	return users, nil
 }
 
