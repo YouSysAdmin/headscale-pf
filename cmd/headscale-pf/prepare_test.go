@@ -206,6 +206,32 @@ func TestPreparePolicy_EndToEnd(t *testing.T) {
 	}
 }
 
+// TestFlagDefaultsDoNotLeakEnvSecrets guards against secrets like PF_TOKEN
+// or PF_LDAP_BIND_PASSWORD ending up in cobra's --help output. The flag
+// defaults must be empty strings; env-var resolution happens at PreRun.
+func TestFlagDefaultsDoNotLeakEnvSecrets(t *testing.T) {
+	for _, name := range []string{
+		"token",
+		"ldap-bind-password",
+		"ldap-bind-dn",
+		"ldap-base-dn",
+		"endpoint",
+		"source",
+		"keycloak-realm",
+		"ldap-default-email-domain",
+	} {
+		f := cliCmd.PersistentFlags().Lookup(name)
+		if f == nil {
+			t.Errorf("flag %q not registered", name)
+			continue
+		}
+		if f.DefValue != "" {
+			t.Errorf("flag --%s has non-empty default %q; secrets must not be baked into --help. "+
+				"Set the default to \"\" and read the env var from PersistentPreRun.", name, f.DefValue)
+		}
+	}
+}
+
 // TestPreparePolicy_NoGroupsInTemplate guards the early-out path: if the
 // HJSON template defines no group: prefixed keys, preparePolicy must error
 // rather than silently writing an empty policy.
