@@ -15,7 +15,7 @@ import (
 
 // jcUserFetchWorkers caps concurrent SystemusersGet calls. Tuned to be
 // well below JumpCloud's documented rate limit while still giving a
-// meaningful speedup over the previous serial implementation.
+// meaningful speedup
 const jcUserFetchWorkers = 8
 
 // Jumpcloud source

@@ -25,7 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 #### Changed
 - **JumpCloud**: per-user lookups during `GetGroupMembers` run through a bounded worker pool (8 workers), materially reducing wall-clock time on large groups.
 - **Internal**: `Source` interface simplified — `GetUserInfo` removed (it was unused on three of four adapters). All adapters use pointer receivers; ID parameter naming standardized to `groupID` / `userID`.
-- **Dependencies**: dropped a dead `juanfont/headscale` import, removing ~27 transitive dependencies (gorm, OIDC, jose, grpc-gateway, otel transitives, …).
+- **Dependencies**: dropped a dead `juanfont/headscale` import.
 
 ## [v2.3.0] 2026-04-09
 #### Added
