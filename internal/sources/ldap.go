@@ -151,12 +151,12 @@ func (c *LDAP) GetGroupMembers(groupID string) ([]models.User, error) {
 		return nil, fmt.Errorf("group DN %q not found", groupID)
 	}
 	group := gsr.Entries[0]
-	oc := strings.ToLower(strings.Join(group.GetAttributeValues("objectClass"), " "))
+	groupClasses := group.GetAttributeValues("objectClass")
 
 	users := make([]models.User, 0)
 
 	// posixGroup via memberUid (already usernames)
-	if strings.Contains(oc, "posixgroup") {
+	if hasObjectClass(groupClasses, "posixGroup") {
 		memberUids := group.GetAttributeValues(c.PosixMemberUidAttr)
 		for _, u := range memberUids {
 			user, err := c.lookupUserByLogin(conn, u)
@@ -299,13 +299,24 @@ func (c *LDAP) dnIsGroup(conn *ldap.Conn, dn string) (bool, error) {
 	if err != nil || len(sr.Entries) == 0 {
 		return false, err
 	}
-	oc := strings.ToLower(strings.Join(sr.Entries[0].GetAttributeValues("objectClass"), " "))
+	classes := sr.Entries[0].GetAttributeValues("objectClass")
 	for _, g := range c.GroupObjectClasses {
-		if strings.Contains(oc, strings.ToLower(g)) {
+		if hasObjectClass(classes, g) {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// hasObjectClass reports whether the values list contains target (case-insensitive equality).
+func hasObjectClass(values []string, target string) bool {
+	t := strings.ToLower(target)
+	for _, v := range values {
+		if strings.ToLower(v) == t {
+			return true
+		}
+	}
+	return false
 }
 
 // lookupUserByDN fetches a user entry by its DN (base-object search) and maps
