@@ -70,12 +70,16 @@ func (c Jumpcloud) GetGroupMembers(groupID string) ([]models.User, error) {
 	var users []models.User
 
 	const pageSize int32 = 100
-	opts := map[string]any{
-		"limit":  pageSize,
-		"fields": []string{"id"}, // reduce payload, we need only IDs here
-	}
+	skip := int32(0)
+	seen := make(map[string]struct{})
 
 	for {
+		opts := map[string]any{
+			"limit":  pageSize,
+			"skip":   skip,
+			"fields": []string{"id"}, // reduce payload, we need only IDs here
+		}
+
 		groupUsers, _, err := c.V2.UserGroupsApi.
 			GraphUserGroupMembership(c.V2Auth, groupID, c.ContentType, c.ContentType, opts)
 		if err != nil {
@@ -87,6 +91,11 @@ func (c Jumpcloud) GetGroupMembers(groupID string) ([]models.User, error) {
 		}
 
 		for _, u := range groupUsers {
+			if _, ok := seen[u.Id]; ok {
+				continue
+			}
+			seen[u.Id] = struct{}{}
+
 			user, err := c.GetUserInfo(u.Id)
 			if err != nil {
 				return nil, err
@@ -98,12 +107,7 @@ func (c Jumpcloud) GetGroupMembers(groupID string) ([]models.User, error) {
 			break
 		}
 
-		// set offset to next page
-		if v, ok := opts["skip"].(int32); ok {
-			opts["skip"] = v + int32(len(groupUsers))
-		} else {
-			opts["skip"] = int32(len(groupUsers))
-		}
+		skip += int32(len(groupUsers))
 	}
 
 	return users, nil
