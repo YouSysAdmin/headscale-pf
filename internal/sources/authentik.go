@@ -78,11 +78,6 @@ func (c *Authentik) GetGroupMembers(groupID string) ([]models.User, error) {
 	return toGroup(*g).Users, nil
 }
 
-// GetUserInfo is unused for Authentik because GetGroupByName returns members.
-func (c *Authentik) GetUserInfo(userID string) (models.User, error) {
-	return models.User{}, nil
-}
-
 // toGroup converts an Authentik Group response to models.Group with users
 // populated. Users is always non-nil (empty slice when group has no members)
 // so the caller can distinguish "preloaded but empty" from "not preloaded".

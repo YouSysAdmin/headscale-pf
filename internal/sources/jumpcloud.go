@@ -22,12 +22,12 @@ type Jumpcloud struct {
 }
 
 // NewJCClient init Jumpcloud source
-func NewJCClient(config SourceConfig) (Jumpcloud, error) {
+func NewJCClient(config SourceConfig) (*Jumpcloud, error) {
 	if len(config.Token) <= 0 {
-		return Jumpcloud{}, errors.New("token is required")
+		return nil, errors.New("token is required")
 	}
 
-	c := Jumpcloud{}
+	c := &Jumpcloud{}
 	c.V1 = jcapiv1.NewAPIClient(jcapiv1.NewConfiguration())
 	c.V1Auth = context.WithValue(context.TODO(), jcapiv1.ContextAPIKey, jcapiv1.APIKey{
 		Key: config.Token,
@@ -44,9 +44,9 @@ func NewJCClient(config SourceConfig) (Jumpcloud, error) {
 }
 
 // GetGroupByName Get Jumpcloud group by name
-func (c Jumpcloud) GetGroupByName(grounName string) (*models.Group, error) {
+func (c *Jumpcloud) GetGroupByName(groupName string) (*models.Group, error) {
 	filter := map[string]any{
-		"filter": []string{fmt.Sprintf("name:eq:%s", grounName)},
+		"filter": []string{fmt.Sprintf("name:eq:%s", groupName)},
 		"limit":  int32(100),
 	}
 
@@ -66,7 +66,7 @@ func (c Jumpcloud) GetGroupByName(grounName string) (*models.Group, error) {
 }
 
 // GetGroupMembers gets ALL JumpCloud group members (handles pagination)
-func (c Jumpcloud) GetGroupMembers(groupID string) ([]models.User, error) {
+func (c *Jumpcloud) GetGroupMembers(groupID string) ([]models.User, error) {
 	var users []models.User
 
 	const pageSize int32 = 100
@@ -96,7 +96,7 @@ func (c Jumpcloud) GetGroupMembers(groupID string) ([]models.User, error) {
 			}
 			seen[u.Id] = struct{}{}
 
-			user, err := c.GetUserInfo(u.Id)
+			user, err := c.getUserInfo(u.Id)
 			if err != nil {
 				return nil, err
 			}
@@ -113,13 +113,14 @@ func (c Jumpcloud) GetGroupMembers(groupID string) ([]models.User, error) {
 	return users, nil
 }
 
-// GetUserInfo get Jumpcloud user info
-func (c Jumpcloud) GetUserInfo(userId string) (models.User, error) {
+// getUserInfo fetches a Jumpcloud user by ID. Used internally by
+// GetGroupMembers to enrich the lightweight membership listing.
+func (c *Jumpcloud) getUserInfo(userID string) (models.User, error) {
 	options := map[string]any{
 		"limit": int32(100),
 	}
 
-	user, _, err := c.V1.SystemusersApi.SystemusersGet(c.V1Auth, userId, c.ContentType, c.ContentType, options)
+	user, _, err := c.V1.SystemusersApi.SystemusersGet(c.V1Auth, userID, c.ContentType, c.ContentType, options)
 	if err != nil {
 		return models.User{}, err
 	}
