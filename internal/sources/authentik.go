@@ -40,7 +40,7 @@ func NewAuthentikClient(config SourceConfig) (*Authentik, error) {
 	akConf := api.NewConfiguration()
 	akConf.Debug = false
 	akConf.Scheme = endpoint.Scheme
-	akConf.Host = endpoint.Hostname()
+	akConf.Host = endpoint.Host
 	akConf.HTTPClient = &http.Client{Transport: transport}
 	akConf.AddDefaultHeader("Authorization", fmt.Sprintf("Bearer %s", config.Token))
 
