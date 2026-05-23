@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+#### Breaking
+- **Output policy**: the name of the output policy file has changed from `current.json` to `current.hjson`
+
 #### Security
 - LDAP bind aborts when StartTLS fails. Previously the bind continued over plaintext, leaking the bind password.
 - TLS certificate verification is now opt-out via `--insecure-skip-tls-verify` (env `PF_INSECURE_SKIP_TLS_VERIFY`) instead of being silently disabled for Authentik (HTTPS) and LDAP (LDAPS / StartTLS).
@@ -18,15 +21,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Authentik**: nil-pointer crash when a user had no email; endpoint port was silently stripped (e.g. `:9000` rerouted to `:443`); bearer token was skipped on non-HTTPS endpoints; shared-state hack across `GetGroupByName` / `GetGroupMembers` calls removed.
 - **LDAP**: `objectClass` matching no longer false-positives on substrings (e.g. `posixGroupExtended` was matching `posixGroup`); empty-result errors no longer render as `<nil>`.
 - **JumpCloud**: paginated members are deduplicated across page boundaries.
-- **Policy**: unknown top-level Headscale fields (e.g. `randomizeClientPort`, `nodeAttrs`, future fields not yet typed in the `Policy` struct) are preserved on round-trip instead of being silently dropped.
 - **Policy**: `$schema` (editor JSON-schema reference for the HJSON template) is no longer leaked into the JSON output — Headscale doesn't recognize it.
 - **Policy**: `WritePolicyToFile` no longer swallows `json.Marshal` errors.
 - **CLI**: `--no-color` now actually disables color (it was evaluated before flag parsing).
 
 #### Changed
+- **Policy**: the output is now identical to a HuJSON input template one-to-one, the tool only populates a groups and does not format an output in any way.
 - **JumpCloud**: per-user lookups during `GetGroupMembers` run through a bounded worker pool (8 workers), materially reducing wall-clock time on large groups.
 - **Internal**: `Source` interface simplified — `GetUserInfo` removed (it was unused on three of four adapters). All adapters use pointer receivers; ID parameter naming standardized to `groupID` / `userID`.
 - **Dependencies**: dropped a dead `juanfont/headscale` import.
+- **Output policy**: the name of the output policy file has changed from `current.json` to `current.hjson`
 
 ## [v2.3.0] 2026-04-09
 #### Added
