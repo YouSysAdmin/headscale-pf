@@ -1,145 +1,144 @@
 package policy
 
 import (
-	"encoding/json"
-	"net/netip"
 	"os"
 	"strings"
 
 	"github.com/tailscale/hujson"
 )
 
-// Policy extend Headscale policy. Known fields are typed so the tool can
-// reason about them; any additional top-level field present in the input
-// (e.g. "$schema", or new Headscale fields not yet modeled here) is captured
-// verbatim in extra and re-emitted unchanged. The tool's contract is to fill
-// group users — everything else round-trips as-is.
+// Policy wraps a parsed Headscale policy template. The tool's only job is to
+// fill in the members of the "groups" section; everything else — comments,
+// key order, formatting, and every other section — is preserved verbatim by
+// mutating the HuJSON AST in place and packing it back out. Validating the
+// rest of the policy is the user's and the server's responsibility.
+//
+// Output is HuJSON (it may contain comments). Headscale's policy loader reads
+// HuJSON, so the result is ready to transfer to the server as-is.
 type Policy struct {
-	Groups        map[string][]string     `json:"groups"`
-	Hosts         map[string]netip.Prefix `json:"hosts"`
-	TagOwners     map[string][]string     `json:"tagOwners"`
-	ACLs          []ACL                   `json:"acls"`
-	AutoApprovers AutoApprovers           `json:"autoApprovers"`
-	SSHs          []SSH                   `json:"ssh"`
+	// ast is the parsed template. Comments live in each node's BeforeExtra/
+	// AfterExtra, so packing it reproduces the template byte-for-byte except
+	// for the group values we replace.
+	ast hujson.Value
 
-	// extra holds top-level keys that aren't represented above, so that
-	// ReadPolicyFromFile + WritePolicyToFile preserve them.
-	extra map[string]json.RawMessage
+	// staged holds the group members to write, keyed by the full group name
+	// (e.g. "group:ops"). AppendGroups fills it; WritePolicyToFile applies it.
+	staged map[string][]string
 }
 
-// knownTopLevelKeys lists JSON keys (lower-cased) covered by typed fields.
-// Anything outside this set goes into Policy.extra. Encoding/json matches
-// keys case-insensitively on unmarshal, so we lower-case here too.
-var knownTopLevelKeys = map[string]struct{}{
-	"groups":        {},
-	"hosts":         {},
-	"tagowners":     {},
-	"acls":          {},
-	"autoapprovers": {},
-	"ssh":           {},
-}
+// schemaKey is an editor-only top-level field (a JSON Schema reference for IDE
+// validation of the HJSON template). Headscale doesn't recognize it, so it is
+// dropped on read and never reaches the output.
+const schemaKey = "$schema"
 
-// templateOnlyKeys are top-level keys that exist in the HJSON template for
-// editor/IDE tooling but are not part of the Headscale policy. They are
-// dropped on read so they never appear in the JSON output.
-var templateOnlyKeys = map[string]struct{}{
-	"$schema": {},
-}
-
-// UnmarshalJSON populates typed fields and captures everything else into
-// extra so unknown fields round-trip through WritePolicyToFile.
-func (p *Policy) UnmarshalJSON(data []byte) error {
-	type alias Policy
-	if err := json.Unmarshal(data, (*alias)(p)); err != nil {
+// ReadPolicyFromFile parses a Headscale policy template from disk, keeping
+// comments and formatting intact, and drops the editor-only $schema field.
+func (p *Policy) ReadPolicyFromFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
 		return err
 	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
+	ast, err := hujson.Parse(data)
+	if err != nil {
 		return err
 	}
-	extra := make(map[string]json.RawMessage)
-	for k, v := range raw {
-		if _, known := knownTopLevelKeys[strings.ToLower(k)]; known {
-			continue
-		}
-		if _, drop := templateOnlyKeys[k]; drop {
-			continue
-		}
-		extra[k] = v
+	p.ast = ast
+	p.dropSchema()
+	return nil
+}
+
+// dropSchema removes the top-level $schema member from the root object so it
+// never appears in the packed output.
+func (p *Policy) dropSchema() {
+	root, ok := p.ast.Value.(*hujson.Object)
+	if !ok {
+		return
 	}
-	if len(extra) > 0 {
-		p.extra = extra
+	filtered := root.Members[:0]
+	for _, m := range root.Members {
+		if lit, ok := m.Name.Value.(hujson.Literal); ok && lit.String() == schemaKey {
+			continue
+		}
+		filtered = append(filtered, m)
+	}
+	root.Members = filtered
+}
+
+// groupsObject returns the root object's "groups" member value (matched
+// case-insensitively, so "groups" or "Groups"), or nil if absent.
+func (p *Policy) groupsObject() *hujson.Object {
+	root, ok := p.ast.Value.(*hujson.Object)
+	if !ok {
+		return nil
+	}
+	for i := range root.Members {
+		lit, ok := root.Members[i].Name.Value.(hujson.Literal)
+		if !ok {
+			continue
+		}
+		if strings.EqualFold(lit.String(), "groups") {
+			obj, _ := root.Members[i].Value.Value.(*hujson.Object)
+			return obj
+		}
 	}
 	return nil
 }
 
-// MarshalJSON merges the typed fields with extra so that unknown top-level
-// keys captured during UnmarshalJSON are emitted alongside the known ones.
-func (p *Policy) MarshalJSON() ([]byte, error) {
-	type alias Policy
-	known, err := json.Marshal((*alias)(p))
-	if err != nil {
-		return nil, err
+// GetGroupNames returns the bare group names declared in the template (the
+// "group:" prefix stripped), used to query the identity source. Names without
+// a prefix are skipped.
+func (p *Policy) GetGroupNames() []string {
+	obj := p.groupsObject()
+	if obj == nil {
+		return nil
 	}
-	if len(p.extra) == 0 {
-		return known, nil
+	var groups []string
+	for i := range obj.Members {
+		lit, ok := obj.Members[i].Name.Value.(hujson.Literal)
+		if !ok {
+			continue
+		}
+		parts := strings.Split(lit.String(), ":")
+		if len(parts) >= 2 {
+			groups = append(groups, parts[1])
+		}
 	}
-	merged := make(map[string]json.RawMessage, len(p.extra)+8)
-	if err := json.Unmarshal(known, &merged); err != nil {
-		return nil, err
-	}
-	for k, v := range p.extra {
-		merged[k] = v
-	}
-	return json.Marshal(merged)
+	return groups
 }
 
-type ACL struct {
-	Action       string   `json:"action"`
-	Protocol     string   `json:"proto"`
-	Sources      []string `json:"src"`
-	Destinations []string `json:"dst"`
-}
-
-type AutoApprovers struct {
-	Routes   map[string][]string `json:"routes"`
-	ExitNode []string            `json:"exitNode"`
-}
-
-type SSH struct {
-	Action       string   `json:"action"`
-	Sources      []string `json:"src"`
-	Destinations []string `json:"dst"`
-	Users        []string `json:"users"`
-	CheckPeriod  string   `json:"checkPeriod,omitempty"`
-}
-
-// ReadPolicyFromFile read Headscale policy from file
-func (p *Policy) ReadPolicyFromFile(path string) error {
-	policyData, err := os.ReadFile(path)
-	if err != nil {
-		return err
+// AppendGroups stages group members to be written. Keys are full group names
+// (e.g. "group:ops"), matching the template's group keys.
+func (p *Policy) AppendGroups(groups map[string][]string) {
+	if p.staged == nil {
+		p.staged = make(map[string][]string)
 	}
-	ast, err := hujson.Parse(policyData)
-	if err != nil {
-		return err
+	for g, u := range groups {
+		p.staged[g] = u
 	}
-	ast.Standardize()
-	data := ast.Pack()
-
-	err = json.Unmarshal(data, &p)
-
-	return err
 }
 
-// WritePolicyToFile write Headscale policy from file
+// WritePolicyToFile applies the staged group members to the AST — replacing
+// only those groups' value arrays — and writes the packed HuJSON to disk.
+// Groups not staged (e.g. not found in the source) keep their template value,
+// comments, and formatting untouched.
 func (p *Policy) WritePolicyToFile(path string) error {
-	p.sanitize()
-
-	data, err := json.Marshal(p)
-	if err != nil {
-		return err
+	if obj := p.groupsObject(); obj != nil && len(p.staged) > 0 {
+		for i := range obj.Members {
+			lit, ok := obj.Members[i].Name.Value.(hujson.Literal)
+			if !ok {
+				continue
+			}
+			members, staged := p.staged[lit.String()]
+			if !staged {
+				continue
+			}
+			// Replace only the value; the node's BeforeExtra/AfterExtra
+			// (surrounding spacing and inline comments) are left intact.
+			obj.Members[i].Value.Value = buildArray(members)
+		}
 	}
+
+	data := p.ast.Pack()
 
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -150,43 +149,16 @@ func (p *Policy) WritePolicyToFile(path string) error {
 	if _, err := f.Write(data); err != nil {
 		return err
 	}
-
 	return nil
 }
 
-// AppendGroups append group to policy
-func (p *Policy) AppendGroups(groups map[string][]string) {
-	if p.Groups == nil {
-		p.Groups = make(map[string][]string)
+// buildArray builds a HuJSON array of string literals. A nil or empty member
+// list yields an empty array ([]) rather than null. Elements carry no extra
+// whitespace, so they pack compact inline, e.g. ["alice@","bob@"].
+func buildArray(members []string) *hujson.Array {
+	elems := make([]hujson.Value, 0, len(members))
+	for _, m := range members {
+		elems = append(elems, hujson.Value{Value: hujson.String(m)})
 	}
-	for g, u := range groups {
-		p.Groups[g] = u
-	}
-}
-
-// GetGroupNames get group names from policy file
-func (p *Policy) GetGroupNames() []string {
-	var groups []string
-	for k := range p.Groups {
-		parts := strings.Split(k, ":")
-		if len(parts) >= 2 {
-			group := parts[1]
-			groups = append(groups, group)
-		}
-	}
-
-	return groups
-}
-
-// sanitize prevents set `null` as value for empty groups and ssh
-// `group:"example": null` -> `group:"example": []`
-func (p *Policy) sanitize() {
-	if p.SSHs == nil {
-		p.SSHs = []SSH{}
-	}
-	for k, v := range p.Groups {
-		if v == nil {
-			p.Groups[k] = []string{}
-		}
-	}
+	return &hujson.Array{Elements: elems}
 }

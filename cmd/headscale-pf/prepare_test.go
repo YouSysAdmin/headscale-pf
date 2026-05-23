@@ -4,11 +4,26 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/tailscale/hujson"
 	"github.com/yousysadmin/headscale-pf/internal/models"
 	"github.com/yousysadmin/headscale-pf/internal/sources"
 )
+
+// standardizeJSON strips comments/trailing commas from HuJSON output so it can
+// be decoded with encoding/json for structural assertions. It parses a copy
+// because hujson aliases the input buffer and Standardize mutates it in place.
+func standardizeJSON(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	v, err := hujson.Parse(append([]byte(nil), raw...))
+	if err != nil {
+		t.Fatalf("parse output as HuJSON: %v\n%s", err, raw)
+	}
+	v.Standardize()
+	return v.Pack()
+}
 
 // stubSource implements sources.Source for end-to-end tests of preparePolicy.
 // Each entry in groups maps a bare group name (without "group:" prefix) to
@@ -43,8 +58,8 @@ var _ sources.Source = (*stubSource)(nil)
 //   - groups present in the source are overwritten with source data
 //   - groups NOT present in the source keep their HJSON-defined members
 //   - empty source results serialize as [] not null
-//   - hosts / tagOwners / autoApprovers / acls round-trip
-//   - Hosts (capital H) in HJSON emits as lowercase hosts in JSON
+//   - hosts / tagOwners / autoApprovers / acls round-trip verbatim
+//   - sections absent from the template are not injected into the output
 func TestPreparePolicy_EndToEnd(t *testing.T) {
 	tmp := t.TempDir()
 	in := filepath.Join(tmp, "policy.hjson")
@@ -135,6 +150,8 @@ func TestPreparePolicy_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read output: %v", err)
 	}
+	// Output is HuJSON (keeps template comments); standardize to decode it.
+	clean := standardizeJSON(t, rawOut)
 
 	var got struct {
 		Groups        map[string][]string `json:"groups"`
@@ -148,7 +165,7 @@ func TestPreparePolicy_EndToEnd(t *testing.T) {
 		SSH    []any `json:"ssh"`
 		Schema any   `json:"$schema"`
 	}
-	if err := json.Unmarshal(rawOut, &got); err != nil {
+	if err := json.Unmarshal(clean, &got); err != nil {
 		t.Fatalf("unmarshal output: %v", err)
 	}
 
@@ -173,7 +190,8 @@ func TestPreparePolicy_EndToEnd(t *testing.T) {
 		t.Errorf("group:corp-vpn should reflect source members, got %v", v)
 	}
 
-	// Hosts case-normalized to lowercase, value preserved
+	// Hosts preserved verbatim (value intact; key kept as written).
+	// Decoding is case-insensitive, so "Hosts" from the template still loads.
 	if got.Hosts["app-ca-prod-vpc"] != "10.2.0.0/16" {
 		t.Errorf("hosts entry lost: %v", got.Hosts)
 	}
@@ -194,9 +212,21 @@ func TestPreparePolicy_EndToEnd(t *testing.T) {
 		t.Errorf("ACLs lost: got %d", len(got.ACLs))
 	}
 
-	// ssh emits as [] (sanitize)
-	if got.SSH == nil {
-		t.Errorf("ssh should be empty array, got nil")
+	// ssh absent from the template must NOT be injected into the output.
+	// The tool only fills groups; it never fabricates sections.
+	var rawMap map[string]any
+	if err := json.Unmarshal(clean, &rawMap); err != nil {
+		t.Fatalf("unmarshal output map: %v", err)
+	}
+	if _, present := rawMap["ssh"]; present {
+		t.Errorf("ssh not in template must not appear in output, got: %s", rawOut)
+	}
+
+	// Template comments survive into the output (HuJSON passthrough).
+	for _, c := range []string{"// ops is not in the source", "// network-all is in the source"} {
+		if !strings.Contains(string(rawOut), c) {
+			t.Errorf("template comment %q lost from output:\n%s", c, rawOut)
+		}
 	}
 
 	// $schema is template-only editor metadata — it must NOT leak into

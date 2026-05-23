@@ -1,12 +1,15 @@
 package policy
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/tailscale/hujson"
 )
 
 const sampleHJSON = `{
@@ -37,25 +40,154 @@ func writeTemp(t *testing.T, name, content string) string {
 	return p
 }
 
-func TestReadPolicyFromFile_ParsesHJSON(t *testing.T) {
+// standardize converts HuJSON output (which may contain comments and trailing
+// commas) into plain JSON so it can be decoded for structural assertions. It
+// parses a copy because hujson aliases the input buffer and Standardize mutates
+// it in place.
+func standardize(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	v, err := hujson.Parse(append([]byte(nil), raw...))
+	if err != nil {
+		t.Fatalf("parse output as HuJSON: %v\n%s", err, raw)
+	}
+	v.Standardize()
+	return v.Pack()
+}
+
+// orderedKeys returns the keys of a JSON object in document order.
+func orderedKeys(t *testing.T, data []byte) []string {
+	t.Helper()
+	dec := json.NewDecoder(bytes.NewReader(data))
+	tok, err := dec.Token()
+	if err != nil {
+		t.Fatalf("token: %v", err)
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '{' {
+		t.Fatalf("expected JSON object, got %v", tok)
+	}
+	var keys []string
+	for dec.More() {
+		kt, err := dec.Token()
+		if err != nil {
+			t.Fatalf("key token: %v", err)
+		}
+		keys = append(keys, kt.(string))
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			t.Fatalf("skip value: %v", err)
+		}
+	}
+	return keys
+}
+
+// readWrite reads template, applies staged groups, writes, returns raw output.
+func readWrite(t *testing.T, template string, staged map[string][]string) []byte {
+	t.Helper()
+	in := writeTemp(t, "in.hjson", template)
+	out := filepath.Join(t.TempDir(), "out.json")
 	p := Policy{}
-	if err := p.ReadPolicyFromFile(writeTemp(t, "in.hjson", sampleHJSON)); err != nil {
-		t.Fatalf("ReadPolicyFromFile: %v", err)
+	if err := p.ReadPolicyFromFile(in); err != nil {
+		t.Fatalf("read: %v", err)
 	}
-	if _, ok := p.Groups["group:admins"]; !ok {
-		t.Errorf("expected group:admins in parsed Groups, got %#v", p.Groups)
+	if staged != nil {
+		p.AppendGroups(staged)
 	}
-	if got := len(p.ACLs); got != 1 {
-		t.Errorf("expected 1 ACL, got %d", got)
+	if err := p.WritePolicyToFile(out); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	raw, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	return raw
+}
+
+// TestUnmodifiedTemplateRoundTripsByteForByte is the core guarantee: a template
+// the tool doesn't modify packs back out exactly as written — comments, trailing
+// commas, indentation and all.
+func TestUnmodifiedTemplateRoundTripsByteForByte(t *testing.T) {
+	tmpl := `{
+  // top comment
+  "groups": {
+    "group:ops": ["ops@"], // ops are static here
+  },
+  "acls": [
+    // acl rule
+    {"action": "accept", "src": ["group:ops"], "dst": ["tag:x:22"]},
+  ],
+}`
+	// No AppendGroups → nothing should change.
+	got := readWrite(t, tmpl, nil)
+	if string(got) != tmpl {
+		t.Errorf("unmodified template not byte-identical:\n--- want ---\n%s\n--- got ---\n%s", tmpl, got)
 	}
 }
 
-func TestGetGroupNames_StripsGroupPrefix(t *testing.T) {
-	p := Policy{Groups: map[string][]string{
-		"group:admins": nil,
-		"group:devs":   nil,
-		"malformed":    nil, // no prefix → must be skipped
-	}}
+// TestCommentsPreservedWhenGroupsFilled confirms comments survive even when the
+// tool rewrites a group's members.
+func TestCommentsPreservedWhenGroupsFilled(t *testing.T) {
+	tmpl := `{
+  // policy for prod
+  "groups": {
+    "group:ops": [], // filled from source
+  },
+  "hosts": { "h": "10.0.0.0/8" }, // network
+}`
+	got := readWrite(t, tmpl, map[string][]string{"group:ops": {"alice@", "bob@"}})
+	s := string(got)
+	for _, want := range []string{"// policy for prod", "// filled from source", "// network"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("comment %q lost:\n%s", want, got)
+		}
+	}
+	// The group must reflect the staged members.
+	clean := standardize(t, got)
+	var decoded struct {
+		Groups map[string][]string `json:"groups"`
+	}
+	if err := json.Unmarshal(clean, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if v := decoded.Groups["group:ops"]; len(v) != 2 || v[0] != "alice@" || v[1] != "bob@" {
+		t.Errorf("group:ops = %v, want [alice@ bob@]", v)
+	}
+}
+
+// TestStaticGroupPreservedWhenSourceMisses: a group not staged keeps its
+// template members and its inline comment.
+func TestStaticGroupPreservedWhenSourceMisses(t *testing.T) {
+	tmpl := `{
+  "groups": {
+    "group:ops":         ["ops@"], // static, not in source
+    "group:network-all": ["stale@"],
+  }
+}`
+	// Only network-all comes back from the source.
+	got := readWrite(t, tmpl, map[string][]string{"group:network-all": {"alice@", "bob@"}})
+	if !strings.Contains(string(got), "// static, not in source") {
+		t.Errorf("static group comment lost:\n%s", got)
+	}
+	clean := standardize(t, got)
+	var decoded struct {
+		Groups map[string][]string `json:"groups"`
+	}
+	if err := json.Unmarshal(clean, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if v := decoded.Groups["group:ops"]; len(v) != 1 || v[0] != "ops@" {
+		t.Errorf("static group:ops dropped: %v", v)
+	}
+	if v := decoded.Groups["group:network-all"]; len(v) != 2 || v[0] != "alice@" {
+		t.Errorf("group:network-all not overwritten: %v", v)
+	}
+}
+
+func TestReadPolicyFromFile_ParsesHJSON(t *testing.T) {
+	in := writeTemp(t, "in.hjson", sampleHJSON)
+	p := Policy{}
+	if err := p.ReadPolicyFromFile(in); err != nil {
+		t.Fatalf("ReadPolicyFromFile: %v", err)
+	}
 	got := p.GetGroupNames()
 	sort.Strings(got)
 	want := []string{"admins", "devs"}
@@ -64,146 +196,185 @@ func TestGetGroupNames_StripsGroupPrefix(t *testing.T) {
 	}
 }
 
-func TestAppendGroups_OverwritesExisting(t *testing.T) {
-	p := Policy{Groups: map[string][]string{"group:admins": {"old@"}}}
-	p.AppendGroups(map[string][]string{
-		"group:admins": {"new@"},
-		"group:devs":   {"alice@"},
-	})
-	if got := p.Groups["group:admins"]; len(got) != 1 || got[0] != "new@" {
-		t.Errorf("group:admins = %v, want [new@]", got)
-	}
-	if _, ok := p.Groups["group:devs"]; !ok {
-		t.Errorf("group:devs should be added")
-	}
-}
-
-func TestAppendGroups_InitializesNilMap(t *testing.T) {
-	p := Policy{}
-	p.AppendGroups(map[string][]string{"group:devs": {"alice@"}})
-	if _, ok := p.Groups["group:devs"]; !ok {
-		t.Errorf("AppendGroups must allocate Groups when nil")
-	}
-}
-
-func TestSanitize_NilGroupsBecomeEmptySlice(t *testing.T) {
-	p := Policy{Groups: map[string][]string{"group:empty": nil}}
-	p.sanitize()
-	if got := p.Groups["group:empty"]; got == nil {
-		t.Errorf("sanitize must replace nil with empty slice")
-	}
-	if p.SSHs == nil {
-		t.Errorf("sanitize must initialize nil SSHs to empty slice")
-	}
-}
-
-func TestWritePolicyToFile_NilGroupSerializesAsEmptyArray(t *testing.T) {
-	p := Policy{Groups: map[string][]string{"group:empty": nil}}
-	out := filepath.Join(t.TempDir(), "out.json")
-	if err := p.WritePolicyToFile(out); err != nil {
-		t.Fatalf("WritePolicyToFile: %v", err)
-	}
-
-	raw, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatalf("read output: %v", err)
-	}
-	var decoded map[string]any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		t.Fatalf("unmarshal output: %v", err)
-	}
-	groups, ok := decoded["groups"].(map[string]any)
-	if !ok {
-		t.Fatalf("groups missing or wrong type in %s", raw)
-	}
-	if _, isArray := groups["group:empty"].([]any); !isArray {
-		t.Errorf("group:empty should serialize as [], got %#v", groups["group:empty"])
-	}
-}
-
-// TestReadRealPolicyHJSON_ParsesAllSections loads the real policy.hjson
-// shipped at the repo root. It catches regressions in HJSON dialect
-// support (comments, trailing commas) and in the Policy struct shape
-// drifting away from the production template format.
-func TestReadRealPolicyHJSON_ParsesAllSections(t *testing.T) {
-	repoRoot := filepath.Join("..", "..")
-	src := filepath.Join(repoRoot, "policy.hjson")
-	if _, err := os.Stat(src); err != nil {
-		t.Skipf("policy.hjson not available: %v", err)
-	}
-
-	p := Policy{}
-	if err := p.ReadPolicyFromFile(src); err != nil {
-		t.Fatalf("real policy.hjson failed to parse: %v", err)
-	}
-	if len(p.Groups) < 30 {
-		t.Errorf("expected real policy to define many groups, got %d", len(p.Groups))
-	}
-	if len(p.Hosts) < 30 {
-		t.Errorf("expected real policy to define many hosts, got %d", len(p.Hosts))
-	}
-	if len(p.TagOwners) == 0 {
-		t.Errorf("expected real policy to define tagOwners")
-	}
-	if len(p.ACLs) == 0 {
-		t.Errorf("expected real policy to define acls")
-	}
-	if len(p.AutoApprovers.Routes) == 0 || len(p.AutoApprovers.ExitNode) == 0 {
-		t.Errorf("expected real policy to define autoApprovers")
-	}
-
-	// Round-trip: write the real policy back out and confirm everything
-	// non-group survives. This is the production guarantee.
-	out := filepath.Join(t.TempDir(), "out.json")
-	if err := p.WritePolicyToFile(out); err != nil {
-		t.Fatalf("write real policy: %v", err)
-	}
-	raw, _ := os.ReadFile(out)
-	var decoded map[string]any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		t.Fatalf("unmarshal output: %v", err)
-	}
-	// $schema is template-only editor metadata (JSON Schema reference for
-	// IDE validation of the HJSON). It must NOT leak into the JSON output —
-	// Headscale doesn't recognize it.
-	if _, present := decoded["$schema"]; present {
-		t.Errorf("real policy.hjson round-trip leaked $schema into output: %s", raw[:min(200, len(raw))])
-	}
-}
-
-// TestHostsCaseInsensitive_EmitsLowercase confirms that "Hosts" (capital H,
-// as used in policy.hjson) loads into the Hosts field, and that on emit the
-// JSON tag forces lowercase "hosts" — matching what current.json shows.
-func TestHostsCaseInsensitive_EmitsLowercase(t *testing.T) {
+func TestGetGroupNames_StripsPrefixSkipsMalformed(t *testing.T) {
 	in := writeTemp(t, "in.hjson", `{
-  "Hosts": { "vpc-a": "10.0.0.0/16" }
+  "groups": {
+    "group:admins": [],
+    "group:devs":   [],
+    "malformed":    [],
+  }
 }`)
 	p := Policy{}
 	if err := p.ReadPolicyFromFile(in); err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if got := p.Hosts["vpc-a"].String(); got != "10.0.0.0/16" {
-		t.Fatalf("Hosts[vpc-a] = %q, want 10.0.0.0/16", got)
-	}
-
-	out := filepath.Join(t.TempDir(), "out.json")
-	if err := p.WritePolicyToFile(out); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	raw, _ := os.ReadFile(out)
-	if !strings.Contains(string(raw), `"hosts":`) {
-		t.Errorf("output should emit lowercase hosts, got: %s", raw)
-	}
-	if strings.Contains(string(raw), `"Hosts":`) {
-		t.Errorf("output must not preserve capital Hosts, got: %s", raw)
+	got := p.GetGroupNames()
+	sort.Strings(got)
+	want := []string{"admins", "devs"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("GetGroupNames = %v, want %v", got, want)
 	}
 }
 
-// TestRoundTrip_PreservesHostsTagOwnersAutoApprovers verifies the structural
-// fields beyond Groups survive a load/save cycle. Mirrors the shape of
-// current.json so future struct changes can't silently drop sections.
+func TestAppendGroups_OverwritesAndAddsStaged(t *testing.T) {
+	tmpl := `{ "groups": { "group:admins": ["old@"], "group:devs": [] } }`
+	got := readWrite(t, tmpl, map[string][]string{
+		"group:admins": {"new@"},
+		"group:devs":   {"alice@"},
+	})
+	clean := standardize(t, got)
+	var decoded struct {
+		Groups map[string][]string `json:"groups"`
+	}
+	if err := json.Unmarshal(clean, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if v := decoded.Groups["group:admins"]; len(v) != 1 || v[0] != "new@" {
+		t.Errorf("group:admins = %v, want [new@]", v)
+	}
+	if v := decoded.Groups["group:devs"]; len(v) != 1 || v[0] != "alice@" {
+		t.Errorf("group:devs = %v, want [alice@]", v)
+	}
+}
+
+func TestEmptyGroupSerializesAsArray(t *testing.T) {
+	tmpl := `{ "groups": { "group:empty": ["placeholder@"] } }`
+	// Stage an empty member list (group exists in source, no members).
+	got := readWrite(t, tmpl, map[string][]string{"group:empty": {}})
+	clean := standardize(t, got)
+	var decoded map[string]any
+	if err := json.Unmarshal(clean, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	groups := decoded["groups"].(map[string]any)
+	if _, isArray := groups["group:empty"].([]any); !isArray {
+		t.Errorf("group:empty should serialize as [], got %#v", groups["group:empty"])
+	}
+}
+
+func TestSchemaFieldStripped(t *testing.T) {
+	tmpl := `{
+  "$schema": "./schemas/tailscale-acl.json-schema.json",
+  "groups": { "group:ops": ["ops@"] }
+}`
+	got := readWrite(t, tmpl, map[string][]string{"group:ops": {"alice@"}})
+	if strings.Contains(string(got), "$schema") {
+		t.Errorf("$schema must be dropped on output (template-only); got:\n%s", got)
+	}
+	clean := standardize(t, got)
+	var decoded map[string]any
+	if err := json.Unmarshal(clean, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, present := decoded["$schema"]; present {
+		t.Errorf("$schema present after round-trip")
+	}
+}
+
+// TestTopLevelOrderPreserved: top-level sections keep template order.
+func TestTopLevelOrderPreserved(t *testing.T) {
+	// Deliberately non-alphabetical.
+	tmpl := `{
+  "tagOwners": { "tag:a": ["group:ops"] },
+  "groups":    { "group:ops": ["ops@"] },
+  "acls":      [],
+  "hosts":     { "h": "10.0.0.0/8" },
+}`
+	got := readWrite(t, tmpl, map[string][]string{"group:ops": {"alice@"}})
+	keys := orderedKeys(t, standardize(t, got))
+	want := []string{"tagOwners", "groups", "acls", "hosts"}
+	if len(keys) != len(want) {
+		t.Fatalf("top-level order = %v, want %v", keys, want)
+	}
+	for i := range want {
+		if keys[i] != want[i] {
+			t.Errorf("top-level order = %v, want %v", keys, want)
+			break
+		}
+	}
+}
+
+// TestGroupOrderPreserved: entries inside the groups object keep template order.
+func TestGroupOrderPreserved(t *testing.T) {
+	tmpl := `{
+  "groups": {
+    "group:zeta":  ["z@"],
+    "group:alpha": ["a@"],
+    "group:mid":   ["m@"],
+  }
+}`
+	got := readWrite(t, tmpl, map[string][]string{"group:alpha": {"alice@"}})
+	clean := standardize(t, got)
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(clean, &top); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	keys := orderedKeys(t, top["groups"])
+	want := []string{"group:zeta", "group:alpha", "group:mid"}
+	if len(keys) != len(want) {
+		t.Fatalf("group order = %v, want %v", keys, want)
+	}
+	for i := range want {
+		if keys[i] != want[i] {
+			t.Errorf("group order = %v, want %v (must not be sorted)", keys, want)
+			break
+		}
+	}
+}
+
+// TestNestedFieldsPreserved: fields nested inside non-group sections survive,
+// since the whole AST is passed through untouched.
+func TestNestedFieldsPreserved(t *testing.T) {
+	tmpl := `{
+  "groups": { "group:ops": ["ops@"] },
+  "ssh": [
+    {
+      "action":      "accept",
+      "src":         ["group:ops"],
+      "dst":         ["tag:server"],
+      "users":       ["root"],
+      "checkPeriod": "5m",
+      "acceptEnv":   ["LANG", "LC_*"],
+      "futureField": { "nested": true },
+    },
+  ],
+}`
+	got := readWrite(t, tmpl, map[string][]string{"group:ops": {"alice@"}})
+	clean := standardize(t, got)
+	var decoded map[string]any
+	if err := json.Unmarshal(clean, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	ssh, ok := decoded["ssh"].([]any)
+	if !ok || len(ssh) != 1 {
+		t.Fatalf("ssh lost: %s", clean)
+	}
+	rule := ssh[0].(map[string]any)
+	if env, _ := rule["acceptEnv"].([]any); len(env) != 2 || env[0] != "LANG" || env[1] != "LC_*" {
+		t.Errorf("ssh.acceptEnv lost: %v", rule["acceptEnv"])
+	}
+	if rule["checkPeriod"] != "5m" {
+		t.Errorf("ssh.checkPeriod lost: %v", rule["checkPeriod"])
+	}
+	if ff, _ := rule["futureField"].(map[string]any); ff == nil || ff["nested"] != true {
+		t.Errorf("unknown nested field lost: %v", rule["futureField"])
+	}
+}
+
+// TestHostsCasePreserved: the template's key casing is kept verbatim.
+func TestHostsCasePreserved(t *testing.T) {
+	tmpl := `{
+  "groups": { "group:ops": ["ops@"] },
+  "Hosts":  { "vpc-a": "10.0.0.0/16" }
+}`
+	got := readWrite(t, tmpl, map[string][]string{"group:ops": {"alice@"}})
+	if !strings.Contains(string(got), `"Hosts"`) {
+		t.Errorf("capital Hosts not preserved verbatim:\n%s", got)
+	}
+}
+
 func TestRoundTrip_PreservesHostsTagOwnersAutoApprovers(t *testing.T) {
-	in := writeTemp(t, "in.hjson", `{
+	tmpl := `{
   "groups": { "group:ops": ["ops@"] },
   "Hosts": {
     "app-ca-prod-vpc": "10.2.0.0/16",
@@ -218,174 +389,70 @@ func TestRoundTrip_PreservesHostsTagOwnersAutoApprovers(t *testing.T) {
     "exitNode": ["group:ops"],
   },
   "acls": [
-    {
-      "action": "accept",
-      "proto":  "tcp",
-      "src":    ["group:ops"],
-      "dst":    ["tag:bastion:22"],
-    },
+    {"action": "accept", "proto": "tcp", "src": ["group:ops"], "dst": ["tag:bastion:22"]},
   ],
-}`)
-	out := filepath.Join(t.TempDir(), "out.json")
+}`
+	got := readWrite(t, tmpl, map[string][]string{"group:ops": {"alice@"}})
+	clean := standardize(t, got)
 
-	p := Policy{}
-	if err := p.ReadPolicyFromFile(in); err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if err := p.WritePolicyToFile(out); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	q := Policy{}
-	if err := q.ReadPolicyFromFile(out); err != nil {
-		t.Fatalf("re-read: %v", err)
-	}
-
-	if got := q.Hosts["app-ca-prod-vpc"].String(); got != "10.2.0.0/16" {
-		t.Errorf("netip.Prefix lost on round-trip: %q", got)
-	}
-	if got, want := q.TagOwners["tag:prod-vpn"], []string{"group:ops"}; len(got) != 1 || got[0] != want[0] {
-		t.Errorf("tagOwners lost: %v", got)
-	}
-	if got := q.AutoApprovers.ExitNode; len(got) != 1 || got[0] != "group:ops" {
-		t.Errorf("autoApprovers.exitNode lost: %v", got)
-	}
-	if got := q.AutoApprovers.Routes["10.0.0.0/8"]; len(got) != 1 || got[0] != "group:ops" {
-		t.Errorf("autoApprovers.routes lost: %v", got)
-	}
-	if len(q.ACLs) != 1 {
-		t.Fatalf("ACLs lost: %v", q.ACLs)
-	}
-	got := q.ACLs[0]
-	if got.Action != "accept" || got.Protocol != "tcp" {
-		t.Errorf("ACL fields lost: %+v", got)
-	}
-	if len(got.Sources) != 1 || got.Sources[0] != "group:ops" {
-		t.Errorf("ACL src lost: %v", got.Sources)
-	}
-	if len(got.Destinations) != 1 || got.Destinations[0] != "tag:bastion:22" {
-		t.Errorf("ACL dst lost: %v", got.Destinations)
-	}
-}
-
-// TestStaticGroupPreservedWhenSourceMisses guards the contract behind
-// group:ops in current.json: groups not provided to AppendGroups keep
-// whatever the HJSON template specified.
-func TestStaticGroupPreservedWhenSourceMisses(t *testing.T) {
-	in := writeTemp(t, "in.hjson", `{
-  "groups": {
-    "group:ops":         ["ops@"],
-    "group:network-all": ["alice@"],
-  }
-}`)
-	p := Policy{}
-	if err := p.ReadPolicyFromFile(in); err != nil {
-		t.Fatalf("read: %v", err)
-	}
-
-	// Simulate prepare.go: only network-all came back from the source,
-	// ops was not found and is therefore not in the AppendGroups input.
-	p.AppendGroups(map[string][]string{
-		"group:network-all": {"alice@", "bob@"},
-	})
-
-	if got := p.Groups["group:ops"]; len(got) != 1 || got[0] != "ops@" {
-		t.Errorf("static group:ops dropped when source missed it: %v", got)
-	}
-	if got := p.Groups["group:network-all"]; len(got) != 2 {
-		t.Errorf("dynamic group:network-all not overwritten: %v", got)
-	}
-}
-
-// TestSchemaFieldStripped enforces that $schema — which exists only for
-// editor JSON-schema validation of the HJSON template — is removed on
-// output. Headscale doesn't recognize $schema; leaking it into the policy
-// file is wrong even though "everything else passes through".
-func TestSchemaFieldStripped(t *testing.T) {
-	in := writeTemp(t, "in.hjson", `{
-  "$schema": "./schemas/tailscale-acl.json-schema.json",
-  "groups": { "group:ops": ["ops@"] }
-}`)
-	out := filepath.Join(t.TempDir(), "out.json")
-
-	p := Policy{}
-	if err := p.ReadPolicyFromFile(in); err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if err := p.WritePolicyToFile(out); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	raw, _ := os.ReadFile(out)
-	var decoded map[string]any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		t.Fatalf("unmarshal output: %v", err)
-	}
-	if _, present := decoded["$schema"]; present {
-		t.Errorf("$schema must be dropped on output (template-only metadata); got %s", raw)
-	}
-}
-
-// TestUnknownTopLevelFieldsPreserved guards future Headscale policy fields
-// not yet modeled in the Policy struct: they must still pass through.
-// $schema is the documented exception — see TestSchemaFieldStripped.
-func TestUnknownTopLevelFieldsPreserved(t *testing.T) {
-	in := writeTemp(t, "in.hjson", `{
-  "randomizeClientPort": true,
-  "nodeAttrs": [
-    { "target": ["*"], "attr": ["funnel"] },
-  ],
-  "groups": { "group:ops": ["ops@"] }
-}`)
-	out := filepath.Join(t.TempDir(), "out.json")
-
-	p := Policy{}
-	if err := p.ReadPolicyFromFile(in); err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	// Tool would mutate groups here; round-trip should keep the rest intact.
-	p.AppendGroups(map[string][]string{"group:ops": {"alice@"}})
-	if err := p.WritePolicyToFile(out); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	raw, _ := os.ReadFile(out)
-	var decoded map[string]any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
+	var q map[string]any
+	if err := json.Unmarshal(clean, &q); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if decoded["randomizeClientPort"] != true {
-		t.Errorf("randomizeClientPort lost: %v", decoded["randomizeClientPort"])
+	hosts := q["Hosts"].(map[string]any)
+	if hosts["app-ca-prod-vpc"] != "10.2.0.0/16" {
+		t.Errorf("hosts lost: %v", hosts)
 	}
-	if _, ok := decoded["nodeAttrs"]; !ok {
-		t.Errorf("nodeAttrs lost from %s", raw)
+	tagOwners := q["tagOwners"].(map[string]any)
+	if v, _ := tagOwners["tag:prod-vpn"].([]any); len(v) != 1 || v[0] != "group:ops" {
+		t.Errorf("tagOwners lost: %v", tagOwners["tag:prod-vpn"])
 	}
-	if got := decoded["groups"].(map[string]any)["group:ops"].([]any); len(got) != 1 || got[0] != "alice@" {
-		t.Errorf("group:ops should reflect AppendGroups, got %v", got)
+	aa := q["autoApprovers"].(map[string]any)
+	if en, _ := aa["exitNode"].([]any); len(en) != 1 || en[0] != "group:ops" {
+		t.Errorf("autoApprovers.exitNode lost: %v", aa["exitNode"])
+	}
+	routes := aa["routes"].(map[string]any)
+	if r, _ := routes["10.0.0.0/8"].([]any); len(r) != 1 || r[0] != "group:ops" {
+		t.Errorf("autoApprovers.routes lost: %v", routes["10.0.0.0/8"])
+	}
+	acls := q["acls"].([]any)
+	if len(acls) != 1 {
+		t.Fatalf("acls lost: %v", acls)
+	}
+	acl := acls[0].(map[string]any)
+	if acl["action"] != "accept" || acl["proto"] != "tcp" {
+		t.Errorf("acl fields lost: %+v", acl)
+	}
+	if dst, _ := acl["dst"].([]any); len(dst) != 1 || dst[0] != "tag:bastion:22" {
+		t.Errorf("acl dst lost: %v", acl["dst"])
 	}
 }
 
-func TestRoundTrip_HJSONInJSONOut(t *testing.T) {
-	in := writeTemp(t, "in.hjson", sampleHJSON)
-	out := filepath.Join(t.TempDir(), "out.json")
-
+// TestReadRealPolicyHJSON_ParsesAndRoundTrips loads the real policy.hjson at the
+// repo root (if present) and confirms it parses, packs back to valid HuJSON,
+// keeps many groups, and drops $schema.
+func TestReadRealPolicyHJSON_ParsesAndRoundTrips(t *testing.T) {
+	src := filepath.Join("..", "..", "policy.hjson")
+	if _, err := os.Stat(src); err != nil {
+		t.Skipf("policy.hjson not available: %v", err)
+	}
 	p := Policy{}
-	if err := p.ReadPolicyFromFile(in); err != nil {
-		t.Fatalf("read: %v", err)
+	if err := p.ReadPolicyFromFile(src); err != nil {
+		t.Fatalf("real policy.hjson failed to parse: %v", err)
 	}
-	p.AppendGroups(map[string][]string{"group:admins": {"alice@example.com"}})
+	if len(p.GetGroupNames()) < 30 {
+		t.Errorf("expected real policy to define many groups, got %d", len(p.GetGroupNames()))
+	}
+	out := filepath.Join(t.TempDir(), "out.json")
 	if err := p.WritePolicyToFile(out); err != nil {
-		t.Fatalf("write: %v", err)
+		t.Fatalf("write real policy: %v", err)
 	}
-
-	q := Policy{}
-	if err := q.ReadPolicyFromFile(out); err != nil {
-		t.Fatalf("re-read: %v", err)
+	raw, _ := os.ReadFile(out)
+	if strings.Contains(string(raw), "$schema") {
+		t.Errorf("real policy round-trip leaked $schema")
 	}
-	if got := q.Groups["group:admins"]; len(got) != 1 || got[0] != "alice@example.com" {
-		t.Errorf("round-trip lost AppendGroups data: %v", got)
-	}
-	if len(q.ACLs) != 1 {
-		t.Errorf("round-trip lost ACLs")
+	// Output must still be parseable HuJSON.
+	if _, err := hujson.Parse(raw); err != nil {
+		t.Errorf("real policy output is not valid HuJSON: %v", err)
 	}
 }
