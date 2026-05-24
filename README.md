@@ -59,6 +59,19 @@ brew install yousysadmin/apps/headscale-pf
 
 ---
 
+## Development
+
+Install the git hooks after cloning ([lefthook](https://lefthook.dev) required):
+
+```bash
+make hooks
+```
+
+On every commit this runs `gofmt`, `go vet`, `go build`, and `go test` (see `lefthook.yml`).
+Bypass in a pinch with `git commit --no-verify`. Other useful targets: `make build`, `make test`, `make lint`.
+
+---
+
 ## Usage
 
 ```bash

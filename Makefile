@@ -7,7 +7,7 @@ BIN_DIR  := dist
 # Binaries
 BIN  := $(BIN_DIR)/headscale-pf
 
-.PHONY: all build build run test test-v vet fmt lint clean help
+.PHONY: all build build run test test-v vet fmt lint hooks clean help
 
 ## all: Show help (default)
 all: help
@@ -39,6 +39,10 @@ fmt:
 ## lint: Run vet and check formatting
 lint: vet
 	@test -z "$$(gofmt -l .)" || (echo "Files need formatting:" && gofmt -l . && exit 1)
+
+## hooks: Install git hooks (lefthook) defined in lefthook.yml
+hooks:
+	lefthook install
 
 ## clean: Remove built binaries
 clean:
