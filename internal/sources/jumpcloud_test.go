@@ -16,20 +16,21 @@ import (
 )
 
 // jcTestServer mimics the two JumpCloud endpoints the adapter relies on:
-//   GET /usergroups                       (used by GetGroupByName, optional)
-//   GET /usergroups/{group_id}/membership (used by GetGroupMembers, paginated)
-//   GET /systemusers/{id}                 (used by getUserInfo, per-user fetch)
+//
+//	GET /usergroups                       (used by GetGroupByName, optional)
+//	GET /usergroups/{group_id}/membership (used by GetGroupMembers, paginated)
+//	GET /systemusers/{id}                 (used by getUserInfo, per-user fetch)
 //
 // Tests configure groupsByName and members per group, then read counters off
 // the returned struct to assert pagination/concurrency behavior.
 type jcTestServer struct {
-	groupsByName map[string]string                 // name -> group ID
-	members      map[string][]string               // group ID -> user IDs (in order)
-	users        map[string]map[string]string      // user ID -> {"username","email"} fields
-	failUserID   string                            // if non-empty, /systemusers/{id} for this ID returns 500
-	memberCalls  int32                             // count of membership requests
-	userCalls    int32                             // count of /systemusers/{id} requests
-	queryLog     []string                          // captured raw query strings, for assertion
+	groupsByName map[string]string            // name -> group ID
+	members      map[string][]string          // group ID -> user IDs (in order)
+	users        map[string]map[string]string // user ID -> {"username","email"} fields
+	failUserID   string                       // if non-empty, /systemusers/{id} for this ID returns 500
+	memberCalls  int32                        // count of membership requests
+	userCalls    int32                        // count of /systemusers/{id} requests
+	queryLog     []string                     // captured raw query strings, for assertion
 }
 
 func (s *jcTestServer) handler(t *testing.T) http.Handler {

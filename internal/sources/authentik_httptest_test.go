@@ -16,10 +16,10 @@ import (
 //
 // groupsByName feeds the list endpoint; groupsByPk feeds the retrieve endpoint.
 type authentikTestServer struct {
-	groupsByName map[string]akGroup
-	groupsByPk   map[string]akGroup
-	listCalls    int32
-	retrieveCalls int32
+	groupsByName     map[string]akGroup
+	groupsByPk       map[string]akGroup
+	listCalls        int32
+	retrieveCalls    int32
 	includeUsersSeen bool
 }
 
