@@ -228,12 +228,6 @@ func TestPreparePolicy_EndToEnd(t *testing.T) {
 			t.Errorf("template comment %q lost from output:\n%s", c, rawOut)
 		}
 	}
-
-	// $schema is template-only editor metadata — it must NOT leak into
-	// the policy file Headscale loads.
-	if got.Schema != nil {
-		t.Errorf("$schema must be dropped on output (template-only); got %v", got.Schema)
-	}
 }
 
 // TestFlagDefaultsDoNotLeakEnvSecrets guards against secrets like PF_TOKEN

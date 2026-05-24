@@ -26,11 +26,6 @@ type Policy struct {
 	staged map[string][]string
 }
 
-// schemaKey is an editor-only top-level field (a JSON Schema reference for IDE
-// validation of the HJSON template). Headscale doesn't recognize it, so it is
-// dropped on read and never reaches the output.
-const schemaKey = "$schema"
-
 // ReadPolicyFromFile parses a Headscale policy template from disk, keeping
 // comments and formatting intact, and drops the editor-only $schema field.
 func (p *Policy) ReadPolicyFromFile(path string) error {
@@ -43,25 +38,7 @@ func (p *Policy) ReadPolicyFromFile(path string) error {
 		return err
 	}
 	p.ast = ast
-	p.dropSchema()
 	return nil
-}
-
-// dropSchema removes the top-level $schema member from the root object so it
-// never appears in the packed output.
-func (p *Policy) dropSchema() {
-	root, ok := p.ast.Value.(*hujson.Object)
-	if !ok {
-		return
-	}
-	filtered := root.Members[:0]
-	for _, m := range root.Members {
-		if lit, ok := m.Name.Value.(hujson.Literal); ok && lit.String() == schemaKey {
-			continue
-		}
-		filtered = append(filtered, m)
-	}
-	root.Members = filtered
 }
 
 // groupsObject returns the root object's "groups" member value (matched

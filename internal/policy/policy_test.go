@@ -252,25 +252,6 @@ func TestEmptyGroupSerializesAsArray(t *testing.T) {
 	}
 }
 
-func TestSchemaFieldStripped(t *testing.T) {
-	tmpl := `{
-  "$schema": "./schemas/tailscale-acl.json-schema.json",
-  "groups": { "group:ops": ["ops@"] }
-}`
-	got := readWrite(t, tmpl, map[string][]string{"group:ops": {"alice@"}})
-	if strings.Contains(string(got), "$schema") {
-		t.Errorf("$schema must be dropped on output (template-only); got:\n%s", got)
-	}
-	clean := standardize(t, got)
-	var decoded map[string]any
-	if err := json.Unmarshal(clean, &decoded); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if _, present := decoded["$schema"]; present {
-		t.Errorf("$schema present after round-trip")
-	}
-}
-
 // TestTopLevelOrderPreserved: top-level sections keep template order.
 func TestTopLevelOrderPreserved(t *testing.T) {
 	// Deliberately non-alphabetical.
@@ -448,9 +429,6 @@ func TestReadRealPolicyHJSON_ParsesAndRoundTrips(t *testing.T) {
 		t.Fatalf("write real policy: %v", err)
 	}
 	raw, _ := os.ReadFile(out)
-	if strings.Contains(string(raw), "$schema") {
-		t.Errorf("real policy round-trip leaked $schema")
-	}
 	// Output must still be parseable HuJSON.
 	if _, err := hujson.Parse(raw); err != nil {
 		t.Errorf("real policy output is not valid HuJSON: %v", err)
