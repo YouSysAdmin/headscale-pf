@@ -266,18 +266,18 @@ jobs:
             -e HEADSCALE_CLI_ADDRESS="${HEADSCALE_CLI_ADDRESS}" \
             -e HEADSCALE_CLI_API_KEY="${HEADSCALE_CLI_API_KEY}" \
             -e INPUT_POLICY="/work/policy.hjson" \
-            -e OUTPUT_POLICY="/work/policy.json" \
+            -e OUTPUT_POLICY="/work/current.hjson" \
             -e SOURCE="jc" \
             -e RETRIES="5" \
             -e RETRY_DELAY_SEC="6" \
             -v "$GITHUB_WORKSPACE:/work" \
             "$IMAGE"
 
-      - name: Upload policy.json artifact
+      - name: Upload current.json artifact
         if: ${{ github.event.inputs.save_artifact == 'true' }}
         uses: actions/upload-artifact@v4
         with:
-          name: policy.json
-          path: ${{ github.workspace }}/policy.json
+          name: current.hjson
+          path: ${{ github.workspace }}/current.hjson
 
 ```
