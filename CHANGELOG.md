@@ -10,8 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 #### Breaking
 - **Output policy**: the output is no longer always JSON. Previously the tool always wrote standard JSON; it now defaults to mirroring the input template's format (`--output-format auto`) — HuJSON for an HJSON template (comments and formatting preserved), or JSON for a strict-JSON template. Pass `--output-format json` to restore the always-JSON behavior.
 - **Output policy**: the name of the output policy file has changed from `current.json` to `current.hjson`.
-  
-## [v2.4.0] 2026-04-29
+
 #### Security
 - LDAP bind aborts when StartTLS fails. Previously the bind continued over plaintext, leaking the bind password.
 - TLS certificate verification is now opt-out via `--insecure-skip-tls-verify` (env `PF_INSECURE_SKIP_TLS_VERIFY`) instead of being silently disabled for Authentik (HTTPS) and LDAP (LDAPS / StartTLS).
