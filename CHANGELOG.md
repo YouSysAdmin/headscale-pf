@@ -5,15 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
-#### Breaking
-- **Output policy**: the name of the output policy file has changed from `current.json` to `current.hjson`
 
+## [v2.5.0] 2026-05-30
+#### Breaking
+- **Output policy**: the output is no longer always JSON. Previously the tool always wrote standard JSON; it now defaults to mirroring the input template's format (`--output-format auto`) — HuJSON for an HJSON template (comments and formatting preserved), or JSON for a strict-JSON template. Pass `--output-format json` to restore the always-JSON behavior.
+- **Output policy**: the name of the output policy file has changed from `current.json` to `current.hjson`.
+  
+## [v2.4.0] 2026-04-29
 #### Security
 - LDAP bind aborts when StartTLS fails. Previously the bind continued over plaintext, leaking the bind password.
 - TLS certificate verification is now opt-out via `--insecure-skip-tls-verify` (env `PF_INSECURE_SKIP_TLS_VERIFY`) instead of being silently disabled for Authentik (HTTPS) and LDAP (LDAPS / StartTLS).
 - Environment variable values for `--token`, `--ldap-bind-password`, and other secret-bearing flags no longer appear in `headscale-pf --help` output.
 
 #### Added
+- `--output-format` flag selecting the output serialization: `auto` (default — detect from the input template: strict JSON in → JSON out, otherwise HuJSON), `hjson` (byte-for-byte HuJSON passthrough), or `json` (pretty-printed, 2-space-indented RFC-8259 JSON).
 - `--insecure-skip-tls-verify` flag (env `PF_INSECURE_SKIP_TLS_VERIFY`) controlling TLS verification across all adapters.
 - Test coverage: end-to-end `preparePolicy` flow with a stub `Source`, real-world `policy.hjson` round-trip, and `httptest`-based mocks for Authentik, Keycloak, and JumpCloud, plus pure-helper coverage for entry/group mapping functions.
 
@@ -87,7 +92,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 #### Changed
 - Update dependency and Go to the v1.25.1
 
-[Unreleased]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.5.0...HEAD
+[v2.3.0]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.4.0...v2.5.0
+[v2.3.0]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.3.0...v2.4.0
 [v2.3.0]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.2.1...v2.3.0
 [v2.2.1]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.2.0...v2.2.1
 [v2.2.0]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.1.0...v2.2.0

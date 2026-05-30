@@ -127,10 +127,10 @@ func TestPreparePolicy_EndToEnd(t *testing.T) {
 		// "ops" intentionally absent — group not found in source
 	}}
 
-	// preparePolicy reads the package-level path vars set by cobra at runtime.
-	prevIn, prevOut := inputPolicyFile, outputPolicyFile
-	inputPolicyFile, outputPolicyFile = in, out
-	t.Cleanup(func() { inputPolicyFile, outputPolicyFile = prevIn, prevOut })
+	// preparePolicy reads the package-level path/format vars set by cobra at runtime.
+	prevIn, prevOut, prevFmt := inputPolicyFile, outputPolicyFile, outputFormat
+	inputPolicyFile, outputPolicyFile, outputFormat = in, out, "hjson"
+	t.Cleanup(func() { inputPolicyFile, outputPolicyFile, outputFormat = prevIn, prevOut, prevFmt })
 
 	logCh := make(chan string, 16)
 	done := make(chan struct{})

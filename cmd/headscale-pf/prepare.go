@@ -11,6 +11,11 @@ import (
 func preparePolicy(client sources.Source, logCh chan<- string) error {
 	hsPolicy := policy.Policy{}
 
+	// Reject an unknown output format before contacting the source.
+	if !policy.IsValidFormat(outputFormat) {
+		return fmt.Errorf("invalid output format %q: must be %q, %q, or %q", outputFormat, policy.FormatAuto, policy.FormatHJSON, policy.FormatJSON)
+	}
+
 	// Read policy template
 	logCh <- fmt.Sprintf("Read policy template from: %s", inputPolicyFile)
 	err := hsPolicy.ReadPolicyFromFile(inputPolicyFile)
@@ -68,9 +73,11 @@ func preparePolicy(client sources.Source, logCh chan<- string) error {
 	}
 	hsPolicy.AppendGroups(hsGroups)
 
-	// Write a prepared policy on a file
-	logCh <- fmt.Sprintf("Write policy to: %s", outputPolicyFile)
-	err = hsPolicy.WritePolicyToFile(outputPolicyFile)
+	// Write a prepared policy on a file. Resolve auto → concrete now so the log
+	// reflects the format actually written.
+	format := hsPolicy.ResolveFormat(outputFormat)
+	logCh <- fmt.Sprintf("Write policy (%s) to: %s", format, outputPolicyFile)
+	err = hsPolicy.WritePolicyToFile(outputPolicyFile, format)
 	if err != nil {
 		return err
 	}

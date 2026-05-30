@@ -15,6 +15,7 @@ import (
 var (
 	inputPolicyFile        string
 	outputPolicyFile       string
+	outputFormat           string
 	source                 string
 	endpoint               string
 	token                  string
@@ -40,6 +41,7 @@ func init() {
 	// Add command persistent flag
 	cliCmd.PersistentFlags().StringVar(&inputPolicyFile, "input-policy", "./policy.hjson", "Headscale policy file template")
 	cliCmd.PersistentFlags().StringVar(&outputPolicyFile, "output-policy", "./current.hjson", "Headscale prepared policy file")
+	cliCmd.PersistentFlags().StringVar(&outputFormat, "output-format", "auto", "Output policy format: auto (detect from input), hjson, or json")
 	cliCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable color output")
 
 	cliCmd.PersistentFlags().StringVar(&source, "source", "", "Source (can use env var PF_SOURCE)")

@@ -80,11 +80,18 @@ func orderedKeys(t *testing.T, data []byte) []string {
 	return keys
 }
 
-// readWrite reads template, applies staged groups, writes, returns raw output.
+// readWrite reads template, applies staged groups, writes as HuJSON, returns
+// raw output. Most tests assert byte-for-byte HuJSON, so this is the default.
 func readWrite(t *testing.T, template string, staged map[string][]string) []byte {
 	t.Helper()
+	return readWriteFormat(t, template, staged, FormatHJSON)
+}
+
+// readWriteFormat is readWrite parameterized by output format (hjson/json).
+func readWriteFormat(t *testing.T, template string, staged map[string][]string, format string) []byte {
+	t.Helper()
 	in := writeTemp(t, "in.hjson", template)
-	out := filepath.Join(t.TempDir(), "out.json")
+	out := filepath.Join(t.TempDir(), "out")
 	p := Policy{}
 	if err := p.ReadPolicyFromFile(in); err != nil {
 		t.Fatalf("read: %v", err)
@@ -92,7 +99,7 @@ func readWrite(t *testing.T, template string, staged map[string][]string) []byte
 	if staged != nil {
 		p.AppendGroups(staged)
 	}
-	if err := p.WritePolicyToFile(out); err != nil {
+	if err := p.WritePolicyToFile(out, format); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	raw, err := os.ReadFile(out)
@@ -411,7 +418,7 @@ func TestRoundTrip_PreservesHostsTagOwnersAutoApprovers(t *testing.T) {
 
 // TestReadRealPolicyHJSON_ParsesAndRoundTrips loads the real policy.hjson at the
 // repo root (if present) and confirms it parses, packs back to valid HuJSON,
-// keeps many groups, and drops $schema.
+// and keeps many groups.
 func TestReadRealPolicyHJSON_ParsesAndRoundTrips(t *testing.T) {
 	src := filepath.Join("..", "..", "policy.hjson")
 	if _, err := os.Stat(src); err != nil {
@@ -424,13 +431,185 @@ func TestReadRealPolicyHJSON_ParsesAndRoundTrips(t *testing.T) {
 	if len(p.GetGroupNames()) < 30 {
 		t.Errorf("expected real policy to define many groups, got %d", len(p.GetGroupNames()))
 	}
-	out := filepath.Join(t.TempDir(), "out.json")
-	if err := p.WritePolicyToFile(out); err != nil {
+	out := filepath.Join(t.TempDir(), "out.hjson")
+	if err := p.WritePolicyToFile(out, FormatHJSON); err != nil {
 		t.Fatalf("write real policy: %v", err)
 	}
 	raw, _ := os.ReadFile(out)
 	// Output must still be parseable HuJSON.
 	if _, err := hujson.Parse(raw); err != nil {
 		t.Errorf("real policy output is not valid HuJSON: %v", err)
+	}
+}
+
+// TestWriteJSON_ValidRFC8259 confirms json mode produces parseable standard JSON
+// even when the template has HuJSON-isms (comments, trailing commas).
+func TestWriteJSON_ValidRFC8259(t *testing.T) {
+	tmpl := `{
+  // comment
+  "groups": { "group:ops": ["ops@"], }, // trailing comma + inline comment
+  "hosts": { "h": "10.0.0.0/8" },
+}`
+	got := readWriteFormat(t, tmpl, map[string][]string{"group:ops": {"alice@"}}, FormatJSON)
+	if !json.Valid(got) {
+		t.Errorf("json output is not valid RFC-8259 JSON:\n%s", got)
+	}
+}
+
+// TestWriteJSON_TwoSpaceIndent confirms json mode is pretty-printed with a
+// 2-space indent and no tabs.
+func TestWriteJSON_TwoSpaceIndent(t *testing.T) {
+	got := readWriteFormat(t, `{ "groups": { "group:ops": ["ops@"] } }`, nil, FormatJSON)
+	s := string(got)
+	if strings.Contains(s, "\t") {
+		t.Errorf("json output must not contain tabs:\n%s", s)
+	}
+	if !strings.Contains(s, "\n  \"groups\"") {
+		t.Errorf("expected a 2-space indented top-level key, got:\n%s", s)
+	}
+}
+
+// TestWriteJSON_KeyOrderPreserved confirms json mode keeps document key order
+// (json.Indent is a lexical reformatter, so it must not sort).
+func TestWriteJSON_KeyOrderPreserved(t *testing.T) {
+	tmpl := `{
+  "tagOwners": { "tag:a": ["group:ops"] },
+  "groups":    { "group:ops": ["ops@"] },
+  "acls":      [],
+  "hosts":     { "h": "10.0.0.0/8" },
+}`
+	got := readWriteFormat(t, tmpl, map[string][]string{"group:ops": {"alice@"}}, FormatJSON)
+	keys := orderedKeys(t, got) // already standard JSON
+	want := []string{"tagOwners", "groups", "acls", "hosts"}
+	if len(keys) != len(want) {
+		t.Fatalf("top-level order = %v, want %v", keys, want)
+	}
+	for i := range want {
+		if keys[i] != want[i] {
+			t.Errorf("top-level order = %v, want %v", keys, want)
+			break
+		}
+	}
+}
+
+// TestWriteJSON_CommentsRemoved confirms comments are stripped in json mode.
+func TestWriteJSON_CommentsRemoved(t *testing.T) {
+	tmpl := `{
+  // top comment
+  "groups": { "group:ops": ["ops@"] }, // inline comment
+}`
+	got := readWriteFormat(t, tmpl, nil, FormatJSON)
+	if strings.Contains(string(got), "//") {
+		t.Errorf("comments must be stripped in json mode:\n%s", got)
+	}
+	if !json.Valid(got) {
+		t.Errorf("json output is not valid JSON:\n%s", got)
+	}
+}
+
+// TestWriteJSON_SchemaKept confirms the editor-only $schema field is preserved
+// in json output (we deliberately do not strip it).
+func TestWriteJSON_SchemaKept(t *testing.T) {
+	tmpl := `{
+  "$schema": "./schemas/tailscale-acl.json-schema.json",
+  "groups": { "group:ops": ["ops@"] }
+}`
+	got := readWriteFormat(t, tmpl, map[string][]string{"group:ops": {"alice@"}}, FormatJSON)
+	var decoded map[string]any
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, ok := decoded["$schema"]; !ok {
+		t.Errorf("$schema must be kept in json output, got:\n%s", got)
+	}
+}
+
+// TestWriteJSON_EmptyGroupSerializesAsArray confirms an empty staged group is []
+// (not null) in json mode.
+func TestWriteJSON_EmptyGroupSerializesAsArray(t *testing.T) {
+	got := readWriteFormat(t, `{ "groups": { "group:empty": ["placeholder@"] } }`,
+		map[string][]string{"group:empty": {}}, FormatJSON)
+	var decoded map[string]any
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	groups := decoded["groups"].(map[string]any)
+	if _, isArray := groups["group:empty"].([]any); !isArray {
+		t.Errorf("group:empty should serialize as [], got %#v", groups["group:empty"])
+	}
+}
+
+// TestWriteJSON_TrailingNewline confirms json output ends with a newline.
+func TestWriteJSON_TrailingNewline(t *testing.T) {
+	got := readWriteFormat(t, `{ "groups": { "group:ops": ["ops@"] } }`, nil, FormatJSON)
+	if !bytes.HasSuffix(got, []byte("\n")) {
+		t.Errorf("json output must end with a newline, got %q", got)
+	}
+}
+
+// TestWritePolicyToFile_InvalidFormat confirms an unknown format errors and
+// writes no file.
+func TestWritePolicyToFile_InvalidFormat(t *testing.T) {
+	in := writeTemp(t, "in.hjson", `{ "groups": { "group:ops": ["ops@"] } }`)
+	out := filepath.Join(t.TempDir(), "out")
+	p := Policy{}
+	if err := p.ReadPolicyFromFile(in); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if err := p.WritePolicyToFile(out, "xml"); err == nil {
+		t.Fatal("expected an error for an invalid output format")
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Errorf("no file should be written for an invalid format (stat err: %v)", err)
+	}
+}
+
+// TestResolveFormat_AutoFromInput confirms FormatAuto maps to json for strict
+// JSON templates and hjson for templates using HuJSON-only features; explicit
+// formats pass through regardless of the input.
+func TestResolveFormat_AutoFromInput(t *testing.T) {
+	cases := []struct {
+		name string
+		tmpl string
+		want string
+	}{
+		{"strict json", `{"groups":{"group:ops":["ops@"]}}`, FormatJSON},
+		{"comment", "{\n  // c\n  \"groups\": { \"group:ops\": [\"ops@\"] }\n}", FormatHJSON},
+		{"trailing comma", `{"groups":{"group:ops":["ops@"],}}`, FormatHJSON},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			in := writeTemp(t, "in", c.tmpl)
+			p := Policy{}
+			if err := p.ReadPolicyFromFile(in); err != nil {
+				t.Fatalf("read: %v", err)
+			}
+			if got := p.ResolveFormat(FormatAuto); got != c.want {
+				t.Errorf("ResolveFormat(auto) = %q, want %q", got, c.want)
+			}
+			if got := p.ResolveFormat(FormatHJSON); got != FormatHJSON {
+				t.Errorf("ResolveFormat(hjson) = %q, want hjson", got)
+			}
+			if got := p.ResolveFormat(FormatJSON); got != FormatJSON {
+				t.Errorf("ResolveFormat(json) = %q, want json", got)
+			}
+		})
+	}
+}
+
+// TestWriteAuto_DetectsFormat confirms end-to-end that auto writes json for a
+// strict-JSON template and hjson (comments preserved) for an HJSON template.
+func TestWriteAuto_DetectsFormat(t *testing.T) {
+	jsonOut := readWriteFormat(t, `{"groups":{"group:ops":["ops@"]}}`, nil, FormatAuto)
+	if !json.Valid(jsonOut) {
+		t.Errorf("auto on strict-json input must produce valid json:\n%s", jsonOut)
+	}
+	if !strings.Contains(string(jsonOut), "\n  \"groups\"") {
+		t.Errorf("auto on strict-json input should pretty-print json:\n%s", jsonOut)
+	}
+
+	hjsonOut := readWriteFormat(t, "{\n  // keep me\n  \"groups\": { \"group:ops\": [\"ops@\"] }\n}", nil, FormatAuto)
+	if !strings.Contains(string(hjsonOut), "// keep me") {
+		t.Errorf("auto on hjson input should preserve comments:\n%s", hjsonOut)
 	}
 }
