@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [v2.5.0] 2026-05-30
+## [v3.0.0] 2026-05-30
 #### Breaking
 - **Output policy**: the output is no longer always JSON. Previously the tool always wrote standard JSON; it now defaults to mirroring the input template's format (`--output-format auto`) — HuJSON for an HJSON template (comments and formatting preserved), or JSON for a strict-JSON template. Pass `--output-format json` to restore the always-JSON behavior.
 - **Output policy**: the name of the output policy file has changed from `current.json` to `current.hjson`.
@@ -92,8 +92,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 #### Changed
 - Update dependency and Go to the v1.25.1
 
-[Unreleased]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.5.0...HEAD
-[v2.3.0]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.4.0...v2.5.0
+[Unreleased]: https://github.com/YouSysAdmin/headscale-pf/compare/v3.0.0...HEAD
+[v2.3.0]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.4.0...v3.0.0
 [v2.3.0]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.3.0...v2.4.0
 [v2.3.0]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.2.1...v2.3.0
 [v2.2.1]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.2.0...v2.2.1
