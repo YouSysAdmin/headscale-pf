@@ -35,3 +35,5 @@ go.work
 .idea
 .vscode
 .fleet
+# Added by code-review-graph
+.code-review-graph/

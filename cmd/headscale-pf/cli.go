@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strconv"
 
 	"github.com/yousysadmin/headscale-pf/internal/sources"
 	"github.com/yousysadmin/headscale-pf/pkg"
@@ -14,9 +15,11 @@ import (
 var (
 	inputPolicyFile        string
 	outputPolicyFile       string
+	outputFormat           string
 	source                 string
 	endpoint               string
 	token                  string
+	insecureSkipTLSVerify  bool
 	ldapBindPassword       string
 	ldapBindDN             string
 	ldapBaseDN             string
@@ -37,28 +40,25 @@ var (
 func init() {
 	// Add command persistent flag
 	cliCmd.PersistentFlags().StringVar(&inputPolicyFile, "input-policy", "./policy.hjson", "Headscale policy file template")
-	cliCmd.PersistentFlags().StringVar(&outputPolicyFile, "output-policy", "./current.json", "Headscale prepared policy file")
+	cliCmd.PersistentFlags().StringVar(&outputPolicyFile, "output-policy", "./current.hjson", "Headscale prepared policy file")
+	cliCmd.PersistentFlags().StringVar(&outputFormat, "output-format", "auto", "Output policy format: auto (detect from input), hjson, or json")
 	cliCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable color output")
 
-	cliCmd.PersistentFlags().StringVar(&source, "source", os.Getenv("PF_SOURCE"), "Source (can use env var PF_SOURCE)")
-	cliCmd.PersistentFlags().StringVar(&endpoint, "endpoint", os.Getenv("PF_ENDPOINT"), "Source endpoint (can use env var PF_ENDPOINT)")
-	cliCmd.PersistentFlags().StringVar(&token, "token", os.Getenv("PF_TOKEN"), "A provider API token (can use env var PF_TOKEN)")
+	cliCmd.PersistentFlags().StringVar(&source, "source", "", "Source (can use env var PF_SOURCE)")
+	cliCmd.PersistentFlags().StringVar(&endpoint, "endpoint", "", "Source endpoint (can use env var PF_ENDPOINT)")
+	cliCmd.PersistentFlags().StringVar(&token, "token", "", "A provider API token (can use env var PF_TOKEN)")
+	cliCmd.PersistentFlags().BoolVar(&insecureSkipTLSVerify, "insecure-skip-tls-verify", false, "Skip TLS certificate verification for HTTPS/LDAPS/StartTLS (can use env var PF_INSECURE_SKIP_TLS_VERIFY)")
 
 	// Specific flags for the LDAP source
-	cliCmd.PersistentFlags().StringVar(&ldapBaseDN, "ldap-base-dn", os.Getenv("PF_LDAP_BASE_DN"), "Base DN to use for LDAP searches (can use env var PF_LDAP_BASE_DN)")
-	cliCmd.PersistentFlags().StringVar(&ldapBindDN, "ldap-bind-dn", os.Getenv("PF_LDAP_BIND_DN"), "Distinguished Name of the LDAP bind user account (can use env var PF_LDAP_BIND_DN)")
-	cliCmd.PersistentFlags().StringVar(&ldapDefaultEmailDomain, "ldap-default-email-domain", os.Getenv("PF_LDAP_DEFAULT_EMAIL_DOMAIN"),
-		"Default email domain to append when user entries lack a mail attribute (can use env var PF_LDAP_DEFAULT_USER_EMAIL_DOMAIN)",
+	cliCmd.PersistentFlags().StringVar(&ldapBaseDN, "ldap-base-dn", "", "Base DN to use for LDAP searches (can use env var PF_LDAP_BASE_DN)")
+	cliCmd.PersistentFlags().StringVar(&ldapBindDN, "ldap-bind-dn", "", "Distinguished Name of the LDAP bind user account (can use env var PF_LDAP_BIND_DN)")
+	cliCmd.PersistentFlags().StringVar(&ldapDefaultEmailDomain, "ldap-default-email-domain", "",
+		"Default email domain to append when user entries lack a mail attribute (can use env var PF_LDAP_DEFAULT_EMAIL_DOMAIN)",
 	)
-	cliCmd.PersistentFlags().StringVar(&ldapBindPassword, "ldap-bind-password", os.Getenv("PF_LDAP_BIND_PASSWORD"), "LDAP password (can use env var PF_LDAP_BIND_PASSWORD)")
+	cliCmd.PersistentFlags().StringVar(&ldapBindPassword, "ldap-bind-password", "", "LDAP password (can use env var PF_LDAP_BIND_PASSWORD)")
 
 	// Specifc flags for the Keycloak source
-	cliCmd.PersistentFlags().StringVar(&keycloakRealm, "keycloak-realm", os.Getenv("PF_KEYCLOAK_REALM"), "Keycloak Realm (can use env var PF_KEYCLOAK_REALM)")
-
-	// Disable colors if terminal doesn't support or user set flag --no-color
-	if !term_color.CheckTerminalColorSupport() || noColor {
-		pterm.DisableColor()
-	}
+	cliCmd.PersistentFlags().StringVar(&keycloakRealm, "keycloak-realm", "", "Keycloak Realm (can use env var PF_KEYCLOAK_REALM)")
 
 	// Configure logger
 	logger = pterm.DefaultLogger.
@@ -66,8 +66,54 @@ func init() {
 		WithMaxWidth(120).
 		WithTime(false)
 
+	// Apply env-var fallbacks for any flag the user did not pass on the
+	// command line. Order: explicit flag > env var > zero value. Also
+	// disable colors here (after flag parsing) so --no-color takes effect.
+	cliCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		applyEnvDefault(cmd, "source", &source, "PF_SOURCE")
+		applyEnvDefault(cmd, "endpoint", &endpoint, "PF_ENDPOINT")
+		applyEnvDefault(cmd, "token", &token, "PF_TOKEN")
+		applyEnvDefault(cmd, "ldap-base-dn", &ldapBaseDN, "PF_LDAP_BASE_DN")
+		applyEnvDefault(cmd, "ldap-bind-dn", &ldapBindDN, "PF_LDAP_BIND_DN")
+		applyEnvDefault(cmd, "ldap-bind-password", &ldapBindPassword, "PF_LDAP_BIND_PASSWORD")
+		applyEnvDefault(cmd, "ldap-default-email-domain", &ldapDefaultEmailDomain, "PF_LDAP_DEFAULT_EMAIL_DOMAIN")
+		applyEnvDefault(cmd, "keycloak-realm", &keycloakRealm, "PF_KEYCLOAK_REALM")
+		if !cmd.Flags().Changed("insecure-skip-tls-verify") {
+			insecureSkipTLSVerify = envBool("PF_INSECURE_SKIP_TLS_VERIFY")
+		}
+
+		if !term_color.CheckTerminalColorSupport() || noColor {
+			pterm.DisableColor()
+		}
+	}
+
 	// Add commands
 	cliCmd.AddCommand(prepare)
+}
+
+// applyEnvDefault sets *target to the value of envName when the user did not
+// pass --flagName on the command line. This keeps explicit-flag-wins
+// precedence while keeping env-var values out of cobra's --help output.
+func applyEnvDefault(cmd *cobra.Command, flagName string, target *string, envName string) {
+	if cmd.Flags().Changed(flagName) {
+		return
+	}
+	if v := os.Getenv(envName); v != "" {
+		*target = v
+	}
+}
+
+// envBool parses a bool from the named env var. Empty/unset returns false.
+func envBool(name string) bool {
+	v := os.Getenv(name)
+	if v == "" {
+		return false
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false
+	}
+	return b
 }
 
 // Prepare
@@ -96,6 +142,7 @@ var prepare = &cobra.Command{
 			Name:                   source,
 			Token:                  token,
 			Endpoint:               endpoint,
+			InsecureSkipTLSVerify:  insecureSkipTLSVerify,
 			LDAPBindPassword:       ldapBindPassword,
 			LDAPBindDN:             ldapBindDN,
 			LDAPBaseDN:             ldapBaseDN,

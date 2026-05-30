@@ -5,12 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/yousysadmin/headscale-pf/internal/models"
 
 	jcapiv1 "github.com/TheJumpCloud/jcapi-go/v1"
 	jcapiv2 "github.com/TheJumpCloud/jcapi-go/v2"
 )
+
+// jcUserFetchWorkers caps concurrent SystemusersGet calls. Tuned to be
+// well below JumpCloud's documented rate limit while still giving a
+// meaningful speedup
+const jcUserFetchWorkers = 8
 
 // Jumpcloud source
 type Jumpcloud struct {
@@ -22,12 +28,12 @@ type Jumpcloud struct {
 }
 
 // NewJCClient init Jumpcloud source
-func NewJCClient(config SourceConfig) (Jumpcloud, error) {
+func NewJCClient(config SourceConfig) (*Jumpcloud, error) {
 	if len(config.Token) <= 0 {
-		return Jumpcloud{}, errors.New("token is required")
+		return nil, errors.New("token is required")
 	}
 
-	c := Jumpcloud{}
+	c := &Jumpcloud{}
 	c.V1 = jcapiv1.NewAPIClient(jcapiv1.NewConfiguration())
 	c.V1Auth = context.WithValue(context.TODO(), jcapiv1.ContextAPIKey, jcapiv1.APIKey{
 		Key: config.Token,
@@ -44,9 +50,9 @@ func NewJCClient(config SourceConfig) (Jumpcloud, error) {
 }
 
 // GetGroupByName Get Jumpcloud group by name
-func (c Jumpcloud) GetGroupByName(grounName string) (*models.Group, error) {
+func (c *Jumpcloud) GetGroupByName(groupName string) (*models.Group, error) {
 	filter := map[string]any{
-		"filter": []string{fmt.Sprintf("name:eq:%s", grounName)},
+		"filter": []string{fmt.Sprintf("name:eq:%s", groupName)},
 		"limit":  int32(100),
 	}
 
@@ -65,57 +71,93 @@ func (c Jumpcloud) GetGroupByName(grounName string) (*models.Group, error) {
 	return nil, nil
 }
 
-// GetGroupMembers gets ALL JumpCloud group members (handles pagination)
-func (c Jumpcloud) GetGroupMembers(groupID string) ([]models.User, error) {
-	var users []models.User
-
+// GetGroupMembers gets ALL JumpCloud group members (handles pagination).
+// The JumpCloud membership endpoint returns only user IDs, so each ID is
+// resolved via getUserInfo. Lookups run through a bounded worker pool to
+// avoid the N+1 latency of a serial loop while staying inside rate limits.
+func (c *Jumpcloud) GetGroupMembers(groupID string) ([]models.User, error) {
 	const pageSize int32 = 100
-	opts := map[string]any{
-		"limit":  pageSize,
-		"fields": []string{"id"}, // reduce payload, we need only IDs here
-	}
+	skip := int32(0)
+	seen := make(map[string]struct{})
+	ids := make([]string, 0)
 
 	for {
+		opts := map[string]any{
+			"limit":  pageSize,
+			"skip":   skip,
+			"fields": []string{"id"},
+		}
+
 		groupUsers, _, err := c.V2.UserGroupsApi.
 			GraphUserGroupMembership(c.V2Auth, groupID, c.ContentType, c.ContentType, opts)
 		if err != nil {
 			return nil, err
 		}
-
 		if len(groupUsers) == 0 {
 			break
 		}
 
 		for _, u := range groupUsers {
-			user, err := c.GetUserInfo(u.Id)
-			if err != nil {
-				return nil, err
+			if _, ok := seen[u.Id]; ok {
+				continue
 			}
-			users = append(users, user)
+			seen[u.Id] = struct{}{}
+			ids = append(ids, u.Id)
 		}
 
 		if int32(len(groupUsers)) < pageSize {
 			break
 		}
-
-		// set offset to next page
-		if v, ok := opts["skip"].(int32); ok {
-			opts["skip"] = v + int32(len(groupUsers))
-		} else {
-			opts["skip"] = int32(len(groupUsers))
-		}
+		skip += int32(len(groupUsers))
 	}
 
+	return c.fetchUsersConcurrent(ids)
+}
+
+// fetchUsersConcurrent resolves user IDs in parallel with a bounded worker
+// pool. The first error short-circuits and is returned to the caller.
+func (c *Jumpcloud) fetchUsersConcurrent(ids []string) ([]models.User, error) {
+	if len(ids) == 0 {
+		return []models.User{}, nil
+	}
+
+	users := make([]models.User, len(ids))
+	errs := make([]error, len(ids))
+
+	sem := make(chan struct{}, jcUserFetchWorkers)
+	var wg sync.WaitGroup
+	for i, id := range ids {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, id string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			u, err := c.getUserInfo(id)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			users[i] = u
+		}(i, id)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
 	return users, nil
 }
 
-// GetUserInfo get Jumpcloud user info
-func (c Jumpcloud) GetUserInfo(userId string) (models.User, error) {
+// getUserInfo fetches a Jumpcloud user by ID. Used internally by
+// GetGroupMembers to enrich the lightweight membership listing.
+func (c *Jumpcloud) getUserInfo(userID string) (models.User, error) {
 	options := map[string]any{
 		"limit": int32(100),
 	}
 
-	user, _, err := c.V1.SystemusersApi.SystemusersGet(c.V1Auth, userId, c.ContentType, c.ContentType, options)
+	user, _, err := c.V1.SystemusersApi.SystemusersGet(c.V1Auth, userID, c.ContentType, c.ContentType, options)
 	if err != nil {
 		return models.User{}, err
 	}

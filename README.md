@@ -59,6 +59,19 @@ brew install yousysadmin/apps/headscale-pf
 
 ---
 
+## Development
+
+Install the git hooks after cloning ([lefthook](https://lefthook.dev) required):
+
+```bash
+make hooks
+```
+
+On every commit this runs `gofmt`, `go vet`, `go build`, and `go test` (see `lefthook.yml`).
+Bypass in a pinch with `git commit --no-verify`. Other useful targets: `make build`, `make test`, `make lint`.
+
+---
+
 ## Usage
 
 ```bash
@@ -83,7 +96,8 @@ headscale-pf [command] [flags]
 | `--endpoint string`            | Source endpoint                                     | `PF_ENDPOINT`                        | –                  |
 | `--token string`               | API token                                           | `PF_TOKEN`                           | –                  |
 | `--input-policy string`        | Input policy template                               | –                                    | `./policy.hjson`   |
-| `--output-policy string`       | Output policy file                                  | –                                    | `./current.json`   |
+| `--output-policy string`       | Output policy file                                  | –                                    | `./current.hjson`  |
+| `--output-format string`       | Output format: `auto`, `hjson`, or `json`           | –                                    | `auto`             |
 | `--ldap-base-dn string`        | LDAP base DN                                        | `PF_LDAP_BASE_DN`                    | –                  |
 | `--ldap-bind-dn string`        | LDAP bind DN                                        | `PF_LDAP_BIND_DN`                    | –                  |
 | `--ldap-bind-password string`  | LDAP password                                       | `PF_LDAP_BIND_PASSWORD`              | –                  |
@@ -91,6 +105,21 @@ headscale-pf [command] [flags]
 | `--keycloak-realm string`      | Keycloak Realm                                      | `PF_KEYCLOAK_REALM`                  | –                  |
 | `--no-color`                   | Disable colored output                              | –                                    | –                  |
 | `-v`, `--version`              | Show version                                        | –                                    | –                  |
+
+### Output format
+
+`--output-format` controls how the prepared policy is written:
+
+- `auto` (default) — detect from the input template: if the template is strict JSON
+  (no comments or trailing commas) the output is `json`; otherwise it is `hjson`.
+- `hjson` — the output mirrors the HuJSON template one-to-one: comments, key order,
+  and formatting are preserved byte-for-byte; only group members are filled in.
+- `json` — plain RFC-8259 JSON, pretty-printed with a 2-space indent (comments and
+  trailing commas removed, key order preserved).
+
+Headscale reads either format. The flag only changes serialization — it does not rename
+the output file, so pair an explicit format with a matching `--output-policy`
+(e.g. `--output-format json --output-policy ./current.json`).
 
 ---
 

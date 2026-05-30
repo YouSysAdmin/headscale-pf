@@ -1,0 +1,33 @@
+# Git hooks managed by lefthook — https://lefthook.dev
+#
+# One-time setup after cloning (wires the hooks into .git/hooks):
+#   make hooks          # or: lefthook install
+#
+# These mirror the Makefile targets (fmt / vet / build / test) so a local
+# commit fails for the same reasons CI would. Skip in a pinch with:
+#   git commit --no-verify        (or: LEFTHOOK=0 git commit ...)
+
+pre-commit:
+  parallel: false
+  commands:
+    # Format staged Go files in place and re-stage the result.
+    fmt:
+      priority: 1
+      glob: "*.go"
+      run: gofmt -w {staged_files}
+      stage_fixed: true
+    # Static analysis across the whole module.
+    vet:
+      priority: 2
+      glob: "*.go"
+      run: go vet ./...
+    # Make sure everything still compiles.
+    build:
+      priority: 3
+      glob: "*.go"
+      run: go build ./...
+    # Run the test suite (fast — the whole suite is well under a second).
+    test:
+      priority: 4
+      glob: "*.go"
+      run: go test ./...

@@ -17,18 +17,18 @@ type Keycloak struct {
 	token  string
 }
 
-func NewKeycloakClient(config SourceConfig) (Keycloak, error) {
+func NewKeycloakClient(config SourceConfig) (*Keycloak, error) {
 	if len(config.Token) <= 0 {
-		return Keycloak{}, errors.New("token is required")
+		return nil, errors.New("token is required")
 	}
 	if len(config.Endpoint) <= 0 {
-		return Keycloak{}, errors.New("endpoint is required")
+		return nil, errors.New("endpoint is required")
 	}
 	if len(config.KeycloakRealm) <= 0 {
-		return Keycloak{}, errors.New("realm is required")
+		return nil, errors.New("realm is required")
 	}
 
-	return Keycloak{
+	return &Keycloak{
 		client: gocloak.NewClient(config.Endpoint),
 		realm:  config.KeycloakRealm,
 		token:  config.Token,
@@ -36,7 +36,7 @@ func NewKeycloakClient(config SourceConfig) (Keycloak, error) {
 }
 
 // GetGroupByName Get Keycloak group by name
-func (kc Keycloak) GetGroupByName(name string) (*models.Group, error) {
+func (kc *Keycloak) GetGroupByName(name string) (*models.Group, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -58,7 +58,7 @@ func (kc Keycloak) GetGroupByName(name string) (*models.Group, error) {
 }
 
 // GetGroupMembers gets ALL Keycloak group members (handles pagination)
-func (kc Keycloak) GetGroupMembers(groupID string) ([]models.User, error) {
+func (kc *Keycloak) GetGroupMembers(groupID string) ([]models.User, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
 
@@ -88,25 +88,13 @@ func (kc Keycloak) GetGroupMembers(groupID string) ([]models.User, error) {
 
 		first += len(users)
 		// if len of user list < pageSize that is the last page
-		// break paginatin
+		// break pagination
 		if len(users) < pageSize {
 			break
 		}
 	}
 
 	return out, nil
-}
-
-// GetUserInfo get Keycloak user info [UNUSED]
-func (kc Keycloak) GetUserInfo(userID string) (models.User, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	u, err := kc.client.GetUserByID(ctx, kc.token, kc.realm, userID)
-	if err != nil {
-		return models.User{}, err
-	}
-	return toModelUser(u), nil
 }
 
 // pagination

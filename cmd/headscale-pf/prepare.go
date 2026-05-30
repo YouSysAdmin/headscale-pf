@@ -11,6 +11,11 @@ import (
 func preparePolicy(client sources.Source, logCh chan<- string) error {
 	hsPolicy := policy.Policy{}
 
+	// Reject an unknown output format before contacting the source.
+	if !policy.IsValidFormat(outputFormat) {
+		return fmt.Errorf("invalid output format %q: must be %q, %q, or %q", outputFormat, policy.FormatAuto, policy.FormatHJSON, policy.FormatJSON)
+	}
+
 	// Read policy template
 	logCh <- fmt.Sprintf("Read policy template from: %s", inputPolicyFile)
 	err := hsPolicy.ReadPolicyFromFile(inputPolicyFile)
@@ -36,17 +41,20 @@ func preparePolicy(client sources.Source, logCh chan<- string) error {
 
 		// If a group is found in source, try to get a members
 		if group != nil {
-			users, err := client.GetGroupMembers(group.ID)
-			if err != nil {
-				return err
+			// Sources may populate Users during GetGroupByName (one round-trip).
+			// A non-nil Users slice — even if empty — means "already loaded".
+			if group.Users == nil {
+				users, err := client.GetGroupMembers(group.ID)
+				if err != nil {
+					return err
+				}
+				group.Users = users
 			}
-
-			group.Users = users
 			groupsInfo = append(groupsInfo, group)
 
-			logCh <- fmt.Sprintf("Collect %d members for group: %s", len(users), g)
+			logCh <- fmt.Sprintf("Collect %d members for group: %s", len(group.Users), g)
 		} else {
-			logCh <- fmt.Sprintf("Group '%s' not foud", g)
+			logCh <- fmt.Sprintf("Group '%s' not found", g)
 		}
 	}
 
@@ -65,9 +73,11 @@ func preparePolicy(client sources.Source, logCh chan<- string) error {
 	}
 	hsPolicy.AppendGroups(hsGroups)
 
-	// Write a prepared policy on a file
-	logCh <- fmt.Sprintf("Write policy to: %s", outputPolicyFile)
-	err = hsPolicy.WritePolicyToFile(outputPolicyFile)
+	// Write a prepared policy on a file. Resolve auto → concrete now so the log
+	// reflects the format actually written.
+	format := hsPolicy.ResolveFormat(outputFormat)
+	logCh <- fmt.Sprintf("Write policy (%s) to: %s", format, outputPolicyFile)
+	err = hsPolicy.WritePolicyToFile(outputPolicyFile, format)
 	if err != nil {
 		return err
 	}

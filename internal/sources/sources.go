@@ -8,9 +8,8 @@ import (
 
 // Source interface
 type Source interface {
-	GetGroupByName(grounName string) (*models.Group, error)
-	GetGroupMembers(groupId string) ([]models.User, error)
-	GetUserInfo(userId string) (models.User, error)
+	GetGroupByName(groupName string) (*models.Group, error)
+	GetGroupMembers(groupID string) ([]models.User, error)
 }
 
 // SourceConfig config source
@@ -18,6 +17,7 @@ type SourceConfig struct {
 	Name                   string // Name source name
 	Endpoint               string // Endpoint source endpoint
 	Token                  string // Token source auth token
+	InsecureSkipTLSVerify  bool   // Skip TLS certificate verification (Authentik HTTPS, LDAPS, LDAP+StartTLS)
 	LDAPBindPassword       string // LDAP bind password
 	LDAPBindDN             string // LDAP BindDN
 	LDAPBaseDN             string // LDAP BaseDN

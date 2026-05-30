@@ -18,7 +18,9 @@ import (
 //   - posixGroup via "memberUid" (login name / uid-valued)
 type LDAP struct {
 	Addr     string // "host:389" or "host:636"
-	UseTLS   bool   // true for LDAPS on 636 (preferred). If false, StartTLS is attempted.
+	Host     string // hostname only, used as TLS ServerName
+	UseTLS   bool   // true for LDAPS on 636 (preferred). If false, StartTLS is required.
+	Insecure bool   // skip TLS certificate verification (LDAPS and StartTLS)
 	BindDN   string
 	BindPass string
 	BaseDN   string
@@ -57,9 +59,16 @@ func NewLDAPClient(config SourceConfig) (*LDAP, error) {
 		config.LDAPDefaultEmailDomain = "example.com"
 	}
 
+	host := config.Endpoint
+	if i := strings.LastIndex(host, ":"); i >= 0 {
+		host = host[:i]
+	}
+
 	return &LDAP{
 		Addr:     config.Endpoint,
+		Host:     host,
 		UseTLS:   strings.HasSuffix(strings.ToLower(config.Endpoint), ":636"),
+		Insecure: config.InsecureSkipTLSVerify,
 		BindDN:   config.LDAPBindDN,
 		BaseDN:   config.LDAPBaseDN,
 		BindPass: config.LDAPBindPassword,
@@ -135,16 +144,19 @@ func (c *LDAP) GetGroupMembers(groupID string) ([]models.User, error) {
 		nil,
 	)
 	gsr, err := conn.Search(groupReq)
-	if err != nil || len(gsr.Entries) == 0 {
+	if err != nil {
 		return nil, fmt.Errorf("resolve group DN %q: %w", groupID, err)
 	}
+	if len(gsr.Entries) == 0 {
+		return nil, fmt.Errorf("group DN %q not found", groupID)
+	}
 	group := gsr.Entries[0]
-	oc := strings.ToLower(strings.Join(group.GetAttributeValues("objectClass"), " "))
+	groupClasses := group.GetAttributeValues("objectClass")
 
 	users := make([]models.User, 0)
 
 	// posixGroup via memberUid (already usernames)
-	if strings.Contains(oc, "posixgroup") {
+	if hasObjectClass(groupClasses, "posixGroup") {
 		memberUids := group.GetAttributeValues(c.PosixMemberUidAttr)
 		for _, u := range memberUids {
 			user, err := c.lookupUserByLogin(conn, u)
@@ -230,20 +242,32 @@ func (c *LDAP) GetUserInfo(userID string) (models.User, error) {
 }
 
 // connect dials the LDAP server and performs a simple bind.
-// If UseTLS is false, it attempts StartTLS (best-effort).
+// LDAPS (UseTLS) wraps the connection in TLS up front. Otherwise StartTLS is
+// required before bind so credentials never travel over plaintext; if StartTLS
+// fails the connection is aborted.
 func (c *LDAP) connect() (*ldap.Conn, error) {
+	tlsConf := &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		ServerName:         c.Host,
+		InsecureSkipVerify: c.Insecure,
+	}
+
 	var conn *ldap.Conn
 	var err error
 	if c.UseTLS {
-		conn, err = ldap.DialTLS("tcp", c.Addr, &tls.Config{MinVersion: tls.VersionTLS12})
+		conn, err = ldap.DialTLS("tcp", c.Addr, tlsConf)
+		if err != nil {
+			return nil, fmt.Errorf("ldap dial tls: %w", err)
+		}
 	} else {
 		conn, err = ldap.Dial("tcp", c.Addr)
-		if err == nil {
-			_ = conn.StartTLS(&tls.Config{InsecureSkipVerify: true})
+		if err != nil {
+			return nil, fmt.Errorf("ldap dial: %w", err)
 		}
-	}
-	if err != nil {
-		return nil, fmt.Errorf("ldap dial: %w", err)
+		if err := conn.StartTLS(tlsConf); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("ldap starttls: %w", err)
+		}
 	}
 	if err := conn.Bind(c.BindDN, c.BindPass); err != nil {
 		conn.Close()
@@ -275,13 +299,24 @@ func (c *LDAP) dnIsGroup(conn *ldap.Conn, dn string) (bool, error) {
 	if err != nil || len(sr.Entries) == 0 {
 		return false, err
 	}
-	oc := strings.ToLower(strings.Join(sr.Entries[0].GetAttributeValues("objectClass"), " "))
+	classes := sr.Entries[0].GetAttributeValues("objectClass")
 	for _, g := range c.GroupObjectClasses {
-		if strings.Contains(oc, strings.ToLower(g)) {
+		if hasObjectClass(classes, g) {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// hasObjectClass reports whether the values list contains target (case-insensitive equality).
+func hasObjectClass(values []string, target string) bool {
+	t := strings.ToLower(target)
+	for _, v := range values {
+		if strings.ToLower(v) == t {
+			return true
+		}
+	}
+	return false
 }
 
 // lookupUserByDN fetches a user entry by its DN (base-object search) and maps
