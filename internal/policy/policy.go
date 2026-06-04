@@ -50,8 +50,13 @@ type Policy struct {
 	inputStrictJSON bool
 }
 
+// schemaKey is an editor-only top-level field (a JSON Schema reference for IDE
+// validation of the HJSON template). Headscale doesn't recognize it, so it is
+// dropped on read and never reaches the output.
+const schemaKey = "$schema"
+
 // ReadPolicyFromFile parses a Headscale policy template from disk, keeping
-// comments and formatting intact.
+// comments and formatting intact, and drops the editor-only $schema field.
 func (p *Policy) ReadPolicyFromFile(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -65,7 +70,25 @@ func (p *Policy) ReadPolicyFromFile(path string) error {
 	// json.Valid is the precise hjson-vs-json discriminator: it rejects the
 	// comments and trailing commas that only HuJSON allows.
 	p.inputStrictJSON = json.Valid(data)
+	p.dropSchema()
 	return nil
+}
+
+// dropSchema removes the top-level $schema member from the root object so it
+// never appears in the packed output.
+func (p *Policy) dropSchema() {
+	root, ok := p.ast.Value.(*hujson.Object)
+	if !ok {
+		return
+	}
+	filtered := root.Members[:0]
+	for _, m := range root.Members {
+		if lit, ok := m.Name.Value.(hujson.Literal); ok && lit.String() == schemaKey {
+			continue
+		}
+		filtered = append(filtered, m)
+	}
+	root.Members = filtered
 }
 
 // ResolveFormat maps FormatAuto to a concrete format based on the input
@@ -178,10 +201,11 @@ func (p *Policy) WritePolicyToFile(path, format string) error {
 	return nil
 }
 
-// serialize renders the already-mutated AST in the requested format.
-//   - FormatHJSON: byte-for-byte HuJSON (comments, trailing commas, $schema kept).
+// serialize renders the already-mutated AST in the requested format. The
+// editor-only $schema field was dropped on read, so it appears in neither.
+//   - FormatHJSON: byte-for-byte HuJSON (comments and trailing commas kept).
 //   - FormatJSON:  RFC-8259 JSON, pretty-printed with 2-space indent, key order
-//     preserved, $schema kept, comments and trailing commas removed.
+//     preserved, comments and trailing commas removed.
 func (p *Policy) serialize(format string) ([]byte, error) {
 	if format == FormatHJSON {
 		return p.ast.Pack(), nil

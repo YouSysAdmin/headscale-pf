@@ -259,6 +259,29 @@ func TestEmptyGroupSerializesAsArray(t *testing.T) {
 	}
 }
 
+// TestSchemaFieldStripped enforces that $schema — editor-only JSON-schema
+// metadata for the HJSON template — is removed on output. Headscale doesn't
+// recognize it, so leaking it into the policy file is wrong even though
+// everything else passes through verbatim.
+func TestSchemaFieldStripped(t *testing.T) {
+	tmpl := `{
+  "$schema": "./schemas/tailscale-acl.json-schema.json",
+  "groups": { "group:ops": ["ops@"] }
+}`
+	got := readWrite(t, tmpl, map[string][]string{"group:ops": {"alice@"}})
+	if strings.Contains(string(got), "$schema") {
+		t.Errorf("$schema must be dropped on output (template-only); got:\n%s", got)
+	}
+	clean := standardize(t, got)
+	var decoded map[string]any
+	if err := json.Unmarshal(clean, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, present := decoded["$schema"]; present {
+		t.Errorf("$schema present after round-trip")
+	}
+}
+
 // TestTopLevelOrderPreserved: top-level sections keep template order.
 func TestTopLevelOrderPreserved(t *testing.T) {
 	// Deliberately non-alphabetical.
@@ -436,6 +459,9 @@ func TestReadRealPolicyHJSON_ParsesAndRoundTrips(t *testing.T) {
 		t.Fatalf("write real policy: %v", err)
 	}
 	raw, _ := os.ReadFile(out)
+	if strings.Contains(string(raw), "$schema") {
+		t.Errorf("real policy round-trip leaked $schema")
+	}
 	// Output must still be parseable HuJSON.
 	if _, err := hujson.Parse(raw); err != nil {
 		t.Errorf("real policy output is not valid HuJSON: %v", err)
@@ -507,20 +533,24 @@ func TestWriteJSON_CommentsRemoved(t *testing.T) {
 	}
 }
 
-// TestWriteJSON_SchemaKept confirms the editor-only $schema field is preserved
-// in json output (we deliberately do not strip it).
-func TestWriteJSON_SchemaKept(t *testing.T) {
+// TestWriteJSON_SchemaStripped confirms the editor-only $schema field is dropped
+// from json output — Headscale doesn't recognize it, so it must not leak into
+// the policy file even though everything else passes through.
+func TestWriteJSON_SchemaStripped(t *testing.T) {
 	tmpl := `{
   "$schema": "./schemas/tailscale-acl.json-schema.json",
   "groups": { "group:ops": ["ops@"] }
 }`
 	got := readWriteFormat(t, tmpl, map[string][]string{"group:ops": {"alice@"}}, FormatJSON)
+	if strings.Contains(string(got), "$schema") {
+		t.Errorf("$schema must be dropped on output (template-only); got:\n%s", got)
+	}
 	var decoded map[string]any
 	if err := json.Unmarshal(got, &decoded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if _, ok := decoded["$schema"]; !ok {
-		t.Errorf("$schema must be kept in json output, got:\n%s", got)
+	if _, present := decoded["$schema"]; present {
+		t.Errorf("$schema present after round-trip:\n%s", got)
 	}
 }
 
