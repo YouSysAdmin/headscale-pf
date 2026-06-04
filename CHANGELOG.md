@@ -5,9 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+
+## [v3.0.1] 2026-05-30
 #### Fixes
  - GitHub Workflow example - replace output policy name from `policy.json` to `current.hjson`
  - Changelog version list
+ - strip $schema from output policy
 
 ## [v3.0.0] 2026-05-30
 #### Breaking
@@ -94,7 +97,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 #### Changed
 - Update dependency and Go to the v1.25.1
 
-[Unreleased]: https://github.com/YouSysAdmin/headscale-pf/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/YouSysAdmin/headscale-pf/compare/v3.0.1...HEAD
+[v3.0.1]: https://github.com/YouSysAdmin/headscale-pf/compare/v3.0.0...v3.0.1
 [v3.0.0]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.4.0...v3.0.0
 [v2.4.0]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.3.0...v2.4.0
 [v2.3.0]: https://github.com/YouSysAdmin/headscale-pf/compare/v2.2.1...v2.3.0
