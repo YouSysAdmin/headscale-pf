@@ -1,3 +1,5 @@
+
+
 # headscale-pf
 
 [![Stand with Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner2-direct.svg)](https://github.com/vshymanskyy/StandWithUkraine/blob/main/docs/README.md)
@@ -23,7 +25,7 @@ If you have a problem, please create an issue.
 
 - Jumpcloud
 - Authentik
-- LDAP / OpenLDAP / Active Directory** (tested with Jumpcloud LDAP)
+- LDAP / OpenLDAP / Active Directory (tested with Jumpcloud LDAP)
 - Keycloak
 
 Planned:
